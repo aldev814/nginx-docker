@@ -36,8 +36,11 @@ ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/arc
 # https://github.com/leev/ngx_http_geoip2_module/releases
 ARG GEOIP2_VERSION=3.4
 
-ARG PCRE_VERSION="10.37"
-ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre2/${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz"
+# ARG PCRE_VERSION="10.37"
+# ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre2/${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz"
+
+ARG PCRE2_VERSION="10.47"
+ARG PCRE2_URL="https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz"
 
 ARG LIBATOMIC_VERSION="7.10.0"
 ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${LIBATOMIC_VERSION}/libatomic_ops-${LIBATOMIC_VERSION}.tar.gz"
@@ -142,10 +145,10 @@ RUN \
 	&& tar -xvf ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz
 
 RUN \
-	echo "Downloading PCRE ..." \
+	echo "Downloading PCRE2 ..." \
 	&& cd /usr/src \
-	&& wget -O pcre2-${PCRE_VERSION}.tar.gz ${PCRE_URL} \
-	&& tar -xzvf pcre2-${PCRE_VERSION}.tar.gz
+	&& wget -O pcre2-${PCRE2_VERSION}.tar.gz ${PCRE2_URL} \
+	&& tar -xzvf pcre2-${PCRE2_VERSION}.tar.gz
 
 # 条件构建 jemalloc
 RUN \
@@ -228,7 +231,7 @@ RUN \
 	--with-http_v2_module \
 	--with-http_v3_module \
 	--with-zlib=/usr/src/zlib \
-	--with-pcre=/usr/src/pcre2-${PCRE_VERSION} \
+	--with-pcre=/usr/src/pcre2-${PCRE2_VERSION} \
 	--with-pcre-jit \
 	--with-libatomic=/usr/src/libatomic_ops-${LIBATOMIC_VERSION} \
 	--add-module=/usr/src/headers-more-nginx-module-${HEADERS_MORE_VERSION} \
