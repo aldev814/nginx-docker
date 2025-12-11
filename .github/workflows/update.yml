@@ -29,29 +29,35 @@ jobs:
           MSG=""
           
           # --- 辅助函数：获取 GitHub 最新 Release/Tag ---
+          # 优先获取 Release (Latest)，没有则获取最新的 Tag
           get_gh_ver() {
             repo=$1
-            ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
-            if [ -z "$ver" ]; then
-              ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/tags" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+            # 尝试获取 Latest Release (通常是 Mainline)
+            ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            
+            # 如果没有 Release (有些 repo 只打 tag)，则获取最新 Tag
+            if [ -z "$ver" ] || [ "$ver" == "null" ]; then
+              ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/tags" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
             fi
-            echo $ver
+            
+            # 清理版本号 (移除前缀 v, release-, release-release-)
+            echo $ver | sed -E 's/^(v|release-|release-release-)//'
           }
 
-          # --- 1. Nginx 更新检查 (自动追踪 Latest Mainline) ---
+          # --- 1. Nginx 更新检查 (使用官方 GitHub API) ---
           CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
           INPUT_NGINX="${{ inputs.nginx_version }}"
           
           if [ -n "$INPUT_NGINX" ]; then
             TARGET_NGINX="$INPUT_NGINX"
           else
-            # 抓取 Nginx 官网最新的 Mainline 版本
-            # 这里的正则会匹配 "Mainline version" 下方的第一个 nginx-x.x.x 链接
-            TARGET_NGINX=$(curl -sL https://nginx.org/en/download.html | grep -oP 'Mainline version.*href="/download/nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+            # 从 nginx/nginx 仓库获取最新 Mainline 版本
+            TARGET_NGINX=$(get_gh_ver "nginx/nginx")
           fi
           
-          if [ -z "$TARGET_NGINX" ]; then
-             echo "Error: Could not detect latest Mainline version from nginx.org"
+          # 安全检查：确保获取到的版本号格式正确 (x.x.x)
+          if ! [[ "$TARGET_NGINX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+             echo "Error: Detect invalid Nginx version: '$TARGET_NGINX'. skipping update."
              exit 1
           fi
           
@@ -68,7 +74,7 @@ jobs:
 
           # --- 2. OpenSSL (3.4.x 系列) ---
           CUR_SSL=$(grep "ARG OPENSSL_VERSION=" Dockerfile | cut -d= -f2 | tr -d '"')
-          # 仅追踪 3.4.x 的最新版，防止跨大版本不兼容
+          # 继续使用 openssl 官网抓取，但增加 sort -V 确保排序
           NEW_SSL=$(curl -s https://www.openssl.org/source/ | grep -oP 'openssl-3\.4\.\d+' | sort -V | tail -1 | cut -d- -f2)
           if [[ -n "$NEW_SSL" && "$CUR_SSL" != "$NEW_SSL" ]]; then
              sed -i "s/ARG OPENSSL_VERSION=.*/ARG OPENSSL_VERSION=\"$NEW_SSL\"/" Dockerfile
