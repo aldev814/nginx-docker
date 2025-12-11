@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.27.2
+ARG NGINX_VERSION=1.27.5
 
 FROM alpine:3.14 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
@@ -24,7 +24,7 @@ ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMAL
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
-ARG HEADERS_MORE_VERSION=0.38
+ARG HEADERS_MORE_VERSION="0.39"
 ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz"
 
 # https://github.com/leev/ngx_http_geoip2_module/releases
