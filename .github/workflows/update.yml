@@ -1,12 +1,12 @@
-name: Update Nginx Version
+name: Update Dependencies
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 0点 (北京时间 8点) 运行
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       nginx_version:
-        description: 'Target Nginx Version (e.g., 1.29.1). Leave empty for auto-update.'
+        description: 'Force Nginx Version (e.g. 1.29.0)'
         required: false
         type: string
 
@@ -17,55 +17,109 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }} # 需要 PAT 权限以触发 publish 工作流
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
-      - name: Determine Target Version
-        id: version
+      - name: Check All Updates
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # 1. 获取输入的手动版本
-          INPUT_VER="${{ inputs.nginx_version }}"
-          CURRENT_VER=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
+          UPDATED=false
+          MSG=""
           
-          if [ -n "$INPUT_VER" ]; then
-            echo "Manual version specified: $INPUT_VER"
-            TARGET_VER="$INPUT_VER"
-          else
-            # 2. 自动模式：基于当前 Dockerfile 的次要版本 (如 1.27) 查找最新补丁
-            MINOR_VER=$(echo $CURRENT_VER | cut -d. -f1,2)
-            echo "Auto-detecting latest patch for ${MINOR_VER}.x..."
-            # 抓取官网，筛选同系列最新版
-            TARGET_VER=$(curl -sL https://nginx.org/en/download.html | grep -oP "nginx-${MINOR_VER}\.\d+" | sort -V | tail -n 1 | cut -d- -f 2)
-          fi
+          # --- 辅助函数：获取 GitHub 最新 Release/Tag ---
+          get_gh_ver() {
+            repo=$1
+            ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+            if [ -z "$ver" ]; then
+              ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/tags" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+            fi
+            echo $ver
+          }
 
-          if [ -z "$TARGET_VER" ]; then
-             echo "Error: Could not determine target version."
+          # --- 1. Nginx 更新检查 (修正版) ---
+          CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
+          INPUT_NGINX="${{ inputs.nginx_version }}"
+          
+          if [ -n "$INPUT_NGINX" ]; then
+            TARGET_NGINX="$INPUT_NGINX"
+          else
+            # 自动模式：锁定次要版本 (如 1.27)
+            MINOR_NGINX=$(echo $CUR_NGINX | cut -d. -f1,2)
+            
+            # 【关键修改】使用 https://nginx.org/download/ (全量列表) 而非 download.html (仅最新)
+            # grep 匹配 href="nginx-1.27.x.tar.gz" 格式
+            TARGET_NGINX=$(curl -sL https://nginx.org/download/ | grep -oP "nginx-${MINOR_NGINX}\.\d+(?=\.tar\.gz)" | sort -V | tail -n 1 | cut -d- -f 2)
+          fi
+          
+          if [ -z "$TARGET_NGINX" ]; then
+             echo "Error: Could not find any version for nginx-${MINOR_NGINX}.x at nginx.org/download/"
              exit 1
           fi
-
-          # 3. 对比版本
-          if [ "$CURRENT_VER" != "$TARGET_VER" ]; then
-             echo "Update required: $CURRENT_VER -> $TARGET_VER"
-             echo "update=true" >> $GITHUB_OUTPUT
-             echo "ver=$TARGET_VER" >> $GITHUB_OUTPUT
+          
+          if [[ "$CUR_NGINX" != "$TARGET_NGINX" ]]; then
+            sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=$TARGET_NGINX/" Dockerfile
+            UPDATED=true
+            MSG="$MSG Nginx $TARGET_NGINX,"
+            echo "nginx_changed=true" >> $GITHUB_OUTPUT
+            echo "nginx_ver=$TARGET_NGINX" >> $GITHUB_OUTPUT
           else
-             echo "Version matches ($CURRENT_VER). No update needed."
-             echo "update=false" >> $GITHUB_OUTPUT
+            echo "nginx_changed=false" >> $GITHUB_OUTPUT
+            echo "nginx_ver=$CUR_NGINX" >> $GITHUB_OUTPUT
           fi
 
-      - name: Apply Update and Trigger Build
-        if: steps.version.outputs.update == 'true'
+          # --- 2. OpenSSL (3.4.x 系列) ---
+          CUR_SSL=$(grep "ARG OPENSSL_VERSION=" Dockerfile | cut -d= -f2 | tr -d '"')
+          NEW_SSL=$(curl -s https://www.openssl.org/source/ | grep -oP 'openssl-3\.4\.\d+' | sort -V | tail -1 | cut -d- -f2)
+          if [[ -n "$NEW_SSL" && "$CUR_SSL" != "$NEW_SSL" ]]; then
+             sed -i "s/ARG OPENSSL_VERSION=.*/ARG OPENSSL_VERSION=\"$NEW_SSL\"/" Dockerfile
+             UPDATED=true
+             MSG="$MSG OpenSSL $NEW_SSL,"
+          fi
+
+          # --- 3. 遍历 GitHub 模块 ---
+          MODULES=(
+            "JEMALLOC_VERSION|jemalloc/jemalloc"
+            "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module"
+            "GEOIP2_VERSION|leev/ngx_http_geoip2_module"
+            "LIBATOMIC_VERSION|ivmai/libatomic_ops"
+            "FANCYINDEX_VERSION|aperezdc/ngx-fancyindex"
+          )
+
+          for mod in "${MODULES[@]}"; do
+            ARG_NAME="${mod%%|*}"
+            REPO="${mod##*|}"
+            CUR_VAL=$(grep "ARG $ARG_NAME=" Dockerfile | cut -d= -f2 | tr -d '"')
+            NEW_VAL=$(get_gh_ver "$REPO")
+            
+            if [[ -n "$NEW_VAL" && "$CUR_VAL" != "$NEW_VAL" ]]; then
+              echo "Updating $ARG_NAME: $CUR_VAL -> $NEW_VAL"
+              sed -i "s/ARG $ARG_NAME=.*/ARG $ARG_NAME=\"$NEW_VAL\"/" Dockerfile
+              UPDATED=true
+              MSG="$MSG ${REPO##*/} $NEW_VAL,"
+            fi
+          done
+
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+          echo "msg=${MSG%,}" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push
+        if: steps.check.outputs.updated == 'true'
         run: |
-          NEW_VER=${{ steps.version.outputs.ver }}
-          
-          # 修改 Dockerfile
-          sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=$NEW_VER/" Dockerfile
-          
-          # 提交并打 Tag (Tag 推送会自动触发 publish.yml 进行编译和发布)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Dockerfile
-          git commit -m "chore: update nginx to $NEW_VER"
+          git commit -m "chore: update dependencies (${{ steps.check.outputs.msg }})"
           git push origin main
-          git tag "v$NEW_VER"
-          git push origin "v$NEW_VER"
+          
+          NGINX_VER="${{ steps.check.outputs.nginx_ver }}"
+          if [ "${{ steps.check.outputs.nginx_changed }}" == "true" ]; then
+            TAG_NAME="v$NGINX_VER"
+          else
+            TAG_NAME="v$NGINX_VER-upd$(date +%Y%m%d)"
+          fi
+          
+          echo "Pushing tag: $TAG_NAME"
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
