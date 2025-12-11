@@ -1,0 +1,71 @@
+name: Update Nginx Version
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天 UTC 0点 (北京时间 8点) 运行
+  workflow_dispatch:
+    inputs:
+      nginx_version:
+        description: 'Target Nginx Version (e.g., 1.29.1). Leave empty for auto-update.'
+        required: false
+        type: string
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }} # 需要 PAT 权限以触发 publish 工作流
+          fetch-depth: 0
+
+      - name: Determine Target Version
+        id: version
+        run: |
+          # 1. 获取输入的手动版本
+          INPUT_VER="${{ inputs.nginx_version }}"
+          CURRENT_VER=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
+          
+          if [ -n "$INPUT_VER" ]; then
+            echo "Manual version specified: $INPUT_VER"
+            TARGET_VER="$INPUT_VER"
+          else
+            # 2. 自动模式：基于当前 Dockerfile 的次要版本 (如 1.27) 查找最新补丁
+            MINOR_VER=$(echo $CURRENT_VER | cut -d. -f1,2)
+            echo "Auto-detecting latest patch for ${MINOR_VER}.x..."
+            # 抓取官网，筛选同系列最新版
+            TARGET_VER=$(curl -sL https://nginx.org/en/download.html | grep -oP "nginx-${MINOR_VER}\.\d+" | sort -V | tail -n 1 | cut -d- -f 2)
+          fi
+
+          if [ -z "$TARGET_VER" ]; then
+             echo "Error: Could not determine target version."
+             exit 1
+          fi
+
+          # 3. 对比版本
+          if [ "$CURRENT_VER" != "$TARGET_VER" ]; then
+             echo "Update required: $CURRENT_VER -> $TARGET_VER"
+             echo "update=true" >> $GITHUB_OUTPUT
+             echo "ver=$TARGET_VER" >> $GITHUB_OUTPUT
+          else
+             echo "Version matches ($CURRENT_VER). No update needed."
+             echo "update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply Update and Trigger Build
+        if: steps.version.outputs.update == 'true'
+        run: |
+          NEW_VER=${{ steps.version.outputs.ver }}
+          
+          # 修改 Dockerfile
+          sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=$NEW_VER/" Dockerfile
+          
+          # 提交并打 Tag (Tag 推送会自动触发 publish.yml 进行编译和发布)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "chore: update nginx to $NEW_VER"
+          git push origin main
+          git tag "v$NEW_VER"
+          git push origin "v$NEW_VER"

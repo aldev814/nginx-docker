@@ -11,7 +11,7 @@ ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_
 # openssl
 ARG OPENSSL_VERSION="3.4.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
-ARG OPENSSL_PATCH="https://raw.githubusercontent.com/EverybodyGetsHurt/OpenSSL-3.x.x-dev-OpenSSL-1.1.1x-chacha20-poly1305_draft/refs/heads/master/OpenSSL-3.4.0-dev_chacha20-poly1305_draft.patch"
+# ARG OPENSSL_PATCH="https://raw.githubusercontent.com/EverybodyGetsHurt/OpenSSL-3.x.x-dev-OpenSSL-1.1.1x-chacha20-poly1305_draft/refs/heads/master/OpenSSL-3.4.0-dev_chacha20-poly1305_draft.patch"
 
 # zlib by cloudflare
 ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"

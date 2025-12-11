@@ -30,6 +30,10 @@ jobs:
           images: |
             ${{ secrets.DOCKER_USERNAME }}/nginx-docker
             ghcr.io/${{ github.actor }}/nginx-docker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
       - name: Build and push Docker Image
         uses: docker/build-push-action@v6.13.0
