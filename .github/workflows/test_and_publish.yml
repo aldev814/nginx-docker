@@ -1,0 +1,150 @@
+name: Test and Publish
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 仅在手动触发 或 Commit 消息包含 [RELEASE_TAG: 时运行
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RELEASE_TAG:')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.8.0
+
+      # --- 第一阶段：构建用于测试的临时镜像 ---
+      # 关键优化：配置 cache-to 写入缓存
+      - name: Build Nginx for Testing
+        uses: docker/build-push-action@v6.13.0
+        with:
+          context: .
+          load: true # 导出到 Docker 守护进程以供测试
+          tags: aldev814/nginx-docker
+          # 使用 GitHub Actions 缓存
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect Nginx Version
+        run: |
+          docker run --rm aldev814/nginx-docker nginx -V 2>&1 | sed 's/\-\-/\n\t--/g'
+
+      # --- 测试阶段 ---
+      - name: Install and setup mkcert
+        env:
+          MKCERT_VERSION: v1.4.4
+        run: |
+          set -x
+          sudo apt-get update && \
+            sudo apt-get install -y libnss3-tools
+
+          curl https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-amd64 --location --output /tmp/mkcert
+          chmod 744 /tmp/mkcert
+          sudo mv /tmp/mkcert /bin/mkcert
+          mkcert -install
+
+      - name: Create signed TLS certificates for localhost
+        run: |
+          mkcert -cert-file tests/localhost.crt -key-file tests/localhost.key localhost 0.0.0.0 ::1
+
+      - name: Serve a static asset and Test
+        run: |
+          set -x
+          ./run-docker.sh &
+          sleep 5; docker ps
+
+          # 测试 HTTP/1.1
+          curl -v --compressed localhost:8888 2>&1 | tee /tmp/out
+          grep --fixed-strings --invert-match -i '< Server: nginx' /tmp/out > /dev/null
+          grep --fixed-strings '< Content-Encoding: br' /tmp/out
+          grep --fixed-strings '<p>It works!</p>' /tmp/out
+
+          # 测试 HTTP/2 和 HTTPS
+          curl -v --compressed https://localhost:8889 2>&1 | tee /tmp/h2
+          grep --fixed-strings '< HTTP/2 200' /tmp/h2
+          grep --fixed-strings --invert-match -i '< server: nginx' /tmp/h2 > /dev/null
+          grep --fixed-strings '<p>It works!</p>' /tmp/h2
+
+          docker logs test_nginx
+
+      # --- 第二阶段：发布 ---
+      
+      - name: Check Release Request
+        if: success()
+        id: release_check
+        run: |
+          TAG_NAME=$(git log -1 --pretty=%B | grep -oP '\[RELEASE_TAG:\K[^\]]+' || echo "")
+          
+          if [ -n "$TAG_NAME" ]; then
+            echo "Release requested: $TAG_NAME"
+            echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            VERSION=${TAG_NAME#v}
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            MAJOR_MINOR=$(echo $VERSION | grep -oP '^[0-9]+\.[0-9]+')
+            echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
+          else
+            echo "No release tag found. Skipping publish."
+            echo "should_publish=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to DockerHub
+        if: steps.release_check.outputs.should_publish == 'true'
+        uses: docker/login-action@v3.3.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Login to GHCR
+        if: steps.release_check.outputs.should_publish == 'true'
+        uses: docker/login-action@v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Metadata
+        if: steps.release_check.outputs.should_publish == 'true'
+        id: meta
+        uses: docker/metadata-action@v5.6.1
+        with:
+          images: |
+            ${{ secrets.DOCKER_USERNAME }}/nginx-docker
+            ghcr.io/${{ github.actor }}/nginx-docker
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.release_check.outputs.version }}
+            type=raw,value=${{ steps.release_check.outputs.major_minor }},enable=${{ steps.release_check.outputs.major_minor != '' }}
+
+      # --- 真正的推送步骤 ---
+      # 关键优化：配置 cache-from 读取之前的缓存
+      - name: Build and Push Image
+        if: steps.release_check.outputs.should_publish == 'true'
+        uses: docker/build-push-action@v6.13.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 【重点】这里读取缓存。因为是在同一个 Job 的同一个 Buildx 实例中，
+          # 它会直接复用上一步 "Build Nginx for Testing" 已经构建好的 Layer，
+          # 速度极快（通常只需几秒用于 Tag 和 Push），不会重新编译。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Push Git Tag
+        if: steps.release_check.outputs.should_publish == 'true'
+        run: |
+          TAG_NAME="${{ steps.release_check.outputs.tag_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
