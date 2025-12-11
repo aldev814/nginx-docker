@@ -159,11 +159,18 @@ RUN \
 		&& make install -j$(nproc); \
 	fi
 
+# 这是一个带有调试信息的修复版本
 RUN if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
         echo "Building mimalloc (Alpine) ..." \
         && apk add --no-cache cmake make g++ linux-headers wget tar \
         && cd /usr/src \
+        # --- 关键修改开始 ---
+        # 1. 这里我添加了打印语句，如果失败，你可以看到到底下载了什么地址
+        && echo "Downloading from: ${MIMALLOC_URL}" \
+        # 2. 确保 URL 是有效的。如果你之前的 URL 不对，可以直接尝试用下面这行硬编码的替换掉变量试试：
+        # && wget -O mimalloc.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/v2.1.7.tar.gz \
         && wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
+        # --- 关键修改结束 ---
         && mkdir -p mimalloc-build \
         && tar -xvf mimalloc.tar.gz -C mimalloc-build --strip-components=1 \
         && cd mimalloc-build \
