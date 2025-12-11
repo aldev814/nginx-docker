@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       nginx_version:
-        description: 'Force Nginx Version (e.g. 1.29.4 or 1.29)'
+        description: 'Force Nginx Version (e.g. 1.29.4 or 1.28)'
         required: false
         type: string
       openssl_version:
@@ -69,17 +69,19 @@ jobs:
             echo $ver | sed -E 's/^(v|release-|release-release-|openssl-)//'
           }
 
-          # --- 1. Nginx 更新检查 (支持 1.28 -> 1.28.x) ---
+          # --- 1. Nginx 更新检查 ---
           CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
           
           if [ -n "$IN_NGINX" ]; then
             # 如果输入格式为 "x.y" (如 1.28)，则自动查找最新的补丁版本
             if [[ "$IN_NGINX" =~ ^[0-9]+\.[0-9]+$ ]]; then
                echo "Minor version input detected ($IN_NGINX). Resolving to latest patch version..."
-               # 使用 git ls-remote 远程查询匹配 tags/release-1.28.* 的标签，排序取最大
-               RESOLVED_VER=$(git ls-remote --tags https://github.com/nginx/nginx.git "refs/tags/release-$IN_NGINX.*" \
+               
+               # 【关键修正】添加 --refs 排除 ^{}，并增加 grep -v 确保万无一失
+               RESOLVED_VER=$(git ls-remote --tags --refs https://github.com/nginx/nginx.git "refs/tags/release-$IN_NGINX.*" \
+                              | grep -v '\^{}' \
                               | cut -d/ -f3 \
-                              | sed 's/release-//' \
+                              | sed 's/^release-//' \
                               | sort -V \
                               | tail -n 1)
                
