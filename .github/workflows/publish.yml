@@ -30,6 +30,7 @@ jobs:
           images: |
             ${{ secrets.DOCKER_USERNAME }}/nginx-docker
             ghcr.io/${{ github.actor }}/nginx-docker
+          # 配置 SemVer 规则
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

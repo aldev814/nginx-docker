@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.29.4
+ARG NGINX_VERSION=1.27.2
 
 FROM alpine:3.14 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
@@ -11,7 +11,8 @@ ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_
 # openssl
 ARG OPENSSL_VERSION="3.4.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
-# ARG OPENSSL_PATCH="https://raw.githubusercontent.com/EverybodyGetsHurt/OpenSSL-3.x.x-dev-OpenSSL-1.1.1x-chacha20-poly1305_draft/refs/heads/master/OpenSSL-3.4.0-dev_chacha20-poly1305_draft.patch"
+# [已移除] 移除过时的草案补丁，新版 OpenSSL 和 Nginx 建议使用标准协议或 QuicTLS
+# ARG OPENSSL_PATCH="..."
 
 # zlib by cloudflare
 ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
@@ -24,7 +25,7 @@ ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMAL
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
-ARG HEADERS_MORE_VERSION="0.39"
+ARG HEADERS_MORE_VERSION=0.38
 ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz"
 
 # https://github.com/leev/ngx_http_geoip2_module/releases
@@ -42,8 +43,6 @@ ARG FANCYINDEX_VERSION="0.5.2"
 ARG FANCYINDEX_URL="https://github.com/aperezdc/ngx-fancyindex/releases/download/v${FANCYINDEX_VERSION}/ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz"
 
 ARG SUBS_FILTER_URL="https://github.com/yaoweibin/ngx_http_substitutions_filter_module.git"
-
-
 
 RUN \
 	apk add --no-cache --virtual .build-deps \
@@ -231,8 +230,9 @@ RUN \
 	# then move `envsubst` out of the way so `gettext` can
 	# be deleted completely, then move `envsubst` back.
 	&& apk add --no-cache --virtual .gettext gettext \
+	&& mv /usr/bin/envsubst /tmp/ \
 	\
-	&& scanelf --needed --nobanner /usr/sbin/nginx /usr/lib/nginx/modules/*.so /usr/bin/envsubst \
+	&& scanelf --needed --nobanner /usr/sbin/nginx /usr/lib/nginx/modules/*.so /tmp/envsubst \
 	| awk '{ gsub(/,/, "\nso:", $2); print "so:" $2 }' \
 	| sort -u \
 	| xargs -r apk info --installed \
@@ -250,7 +250,7 @@ COPY --from=base /etc/nginx /etc/nginx
 COPY --from=base /usr/lib/nginx/modules/*.so /usr/lib/nginx/modules/
 COPY --from=base /usr/sbin/nginx /usr/sbin/
 COPY --from=base /usr/local/lib/perl5/site_perl /usr/local/lib/perl5/site_perl
-COPY --from=base /usr/bin/envsubst /usr/local/bin/envsubst
+COPY --from=base /tmp/envsubst /usr/local/bin/envsubst
 COPY --from=base /etc/ssl/dhparam.pem /etc/ssl/dhparam.pem
 
 RUN \

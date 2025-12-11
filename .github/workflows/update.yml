@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT }} # 需要 PAT 权限以触发后续流程
           fetch-depth: 0
 
       - name: Check All Updates
@@ -29,35 +29,31 @@ jobs:
           MSG=""
           
           # --- 辅助函数：获取 GitHub 最新 Release/Tag ---
-          # 优先获取 Release (Latest)，没有则获取最新的 Tag
           get_gh_ver() {
             repo=$1
-            # 尝试获取 Latest Release (通常是 Mainline)
+            # 1. 尝试获取 Latest Release
             ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-            
-            # 如果没有 Release (有些 repo 只打 tag)，则获取最新 Tag
+            # 2. 如果没有 Release，获取最新 Tag
             if [ -z "$ver" ] || [ "$ver" == "null" ]; then
               ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/tags" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
             fi
-            
-            # 清理版本号 (移除前缀 v, release-, release-release-)
-            echo $ver | sed -E 's/^(v|release-|release-release-)//'
+            # 3. 清理前缀 (v, release-, openssl-)
+            echo $ver | sed -E 's/^(v|release-|release-release-|openssl-)//'
           }
 
-          # --- 1. Nginx 更新检查 (使用官方 GitHub API) ---
+          # --- 1. Nginx (GitHub API) ---
           CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
           INPUT_NGINX="${{ inputs.nginx_version }}"
           
           if [ -n "$INPUT_NGINX" ]; then
             TARGET_NGINX="$INPUT_NGINX"
           else
-            # 从 nginx/nginx 仓库获取最新 Mainline 版本
             TARGET_NGINX=$(get_gh_ver "nginx/nginx")
           fi
           
-          # 安全检查：确保获取到的版本号格式正确 (x.x.x)
+          # 简单格式校验
           if ! [[ "$TARGET_NGINX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-             echo "Error: Detect invalid Nginx version: '$TARGET_NGINX'. skipping update."
+             echo "Error: Invalid Nginx version detected: $TARGET_NGINX"
              exit 1
           fi
           
@@ -72,17 +68,17 @@ jobs:
             echo "nginx_ver=$CUR_NGINX" >> $GITHUB_OUTPUT
           fi
 
-          # --- 2. OpenSSL (3.4.x 系列) ---
+          # --- 2. OpenSSL (GitHub API) ---
           CUR_SSL=$(grep "ARG OPENSSL_VERSION=" Dockerfile | cut -d= -f2 | tr -d '"')
-          # 继续使用 openssl 官网抓取，但增加 sort -V 确保排序
-          NEW_SSL=$(curl -s https://www.openssl.org/source/ | grep -oP 'openssl-3\.4\.\d+' | sort -V | tail -1 | cut -d- -f2)
+          NEW_SSL=$(get_gh_ver "openssl/openssl")
+          
           if [[ -n "$NEW_SSL" && "$CUR_SSL" != "$NEW_SSL" ]]; then
              sed -i "s/ARG OPENSSL_VERSION=.*/ARG OPENSSL_VERSION=\"$NEW_SSL\"/" Dockerfile
              UPDATED=true
              MSG="$MSG OpenSSL $NEW_SSL,"
           fi
 
-          # --- 3. 遍历 GitHub 模块 ---
+          # --- 3. 其他模块 (GitHub API) ---
           MODULES=(
             "JEMALLOC_VERSION|jemalloc/jemalloc"
             "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module"
@@ -98,7 +94,6 @@ jobs:
             NEW_VAL=$(get_gh_ver "$REPO")
             
             if [[ -n "$NEW_VAL" && "$CUR_VAL" != "$NEW_VAL" ]]; then
-              echo "Updating $ARG_NAME: $CUR_VAL -> $NEW_VAL"
               sed -i "s/ARG $ARG_NAME=.*/ARG $ARG_NAME=\"$NEW_VAL\"/" Dockerfile
               UPDATED=true
               MSG="$MSG ${REPO##*/} $NEW_VAL,"
@@ -108,22 +103,29 @@ jobs:
           echo "updated=$UPDATED" >> $GITHUB_OUTPUT
           echo "msg=${MSG%,}" >> $GITHUB_OUTPUT
 
-      - name: Commit and Push
+      - name: Commit and Push (If tag not exists)
         if: steps.check.outputs.updated == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Dockerfile
-          git commit -m "chore: update dependencies (${{ steps.check.outputs.msg }})"
-          git push origin main
-          
+          # 计算目标 Tag 名称
           NGINX_VER="${{ steps.check.outputs.nginx_ver }}"
           if [ "${{ steps.check.outputs.nginx_changed }}" == "true" ]; then
             TAG_NAME="v$NGINX_VER"
           else
             TAG_NAME="v$NGINX_VER-upd$(date +%Y%m%d)"
           fi
+
+          # 关键：检查远程是否已存在该 Tag
+          # 如果存在，说明该版本之前已经处理过，直接退出，跳过后续所有操作（包括编译）
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists. Skipping compilation and update."
+            exit 0
+          fi
+
+          # 提交代码，并在 Commit Message 中携带 Tag 信息
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "chore: update dependencies (${{ steps.check.outputs.msg }}) [RELEASE_TAG:$TAG_NAME]"
           
-          echo "Pushing tag: $TAG_NAME"
-          git tag "$TAG_NAME"
-          git push origin "$TAG_NAME"
+          echo "Pushing changes to main to trigger test..."
+          git push origin main

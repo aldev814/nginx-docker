@@ -10,7 +10,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }} # 需要 PAT 权限以推送 Tag
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.8.0
@@ -67,3 +70,17 @@ jobs:
           grep --fixed-strings '<p>It works!</p>' /tmp/h2
 
           docker logs test_nginx
+
+      - name: Tag and Trigger Publish (Only if tests passed)
+        if: success()
+        run: |
+          # 从 Commit Message 中提取 update.yml 传递的 Tag 信息
+          TAG_NAME=$(git log -1 --pretty=%B | grep -oP '\[RELEASE_TAG:\K[^\]]+' || echo "")
+          
+          if [ -n "$TAG_NAME" ]; then
+            echo "Tests passed. Found release tag request: $TAG_NAME"
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+          else
+            echo "No release tag found in commit message. Skipping release."
+          fi
