@@ -2,6 +2,12 @@ name: Test and Publish
 
 on:
   workflow_dispatch:
+    # 新增 inputs 配置，允许手动输入 Tag
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g. v1.0.1). Leave empty for test only.'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -9,7 +15,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 仅在手动触发 或 Commit 消息包含 [RELEASE_TAG: 时运行
+    # 保持原有逻辑：手动触发 或 Commit 消息包含特定标记时运行
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RELEASE_TAG:')
 
     steps:
@@ -22,14 +28,12 @@ jobs:
         uses: docker/setup-buildx-action@v3.8.0
 
       # --- 第一阶段：构建用于测试的临时镜像 ---
-      # 关键优化：配置 cache-to 写入缓存
       - name: Build Nginx for Testing
         uses: docker/build-push-action@v6.13.0
         with:
           context: .
-          load: true # 导出到 Docker 守护进程以供测试
+          load: true
           tags: aldev814/nginx-docker
-          # 使用 GitHub Actions 缓存
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -45,7 +49,6 @@ jobs:
           set -x
           sudo apt-get update && \
             sudo apt-get install -y libnss3-tools
-
           curl https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-amd64 --location --output /tmp/mkcert
           chmod 744 /tmp/mkcert
           sudo mv /tmp/mkcert /bin/mkcert
@@ -81,18 +84,36 @@ jobs:
         if: success()
         id: release_check
         run: |
-          TAG_NAME=$(git log -1 --pretty=%B | grep -oP '\[RELEASE_TAG:\K[^\]]+' || echo "")
+          # 1. 获取手动输入的 Tag (如果存在)
+          MANUAL_TAG="${{ inputs.release_tag }}"
           
+          # 2. 获取 Commit 消息中的 Tag (如果存在)
+          COMMIT_TAG=$(git log -1 --pretty=%B | grep -oP '\[RELEASE_TAG:\K[^\]]+' || echo "")
+          
+          # 3. 判定最终使用的 TAG_NAME (手动输入优先级更高)
+          if [ -n "$MANUAL_TAG" ]; then
+            TAG_NAME="$MANUAL_TAG"
+            echo "Source: Manual Input"
+          elif [ -n "$COMMIT_TAG" ]; then
+            TAG_NAME="$COMMIT_TAG"
+            echo "Source: Commit Message"
+          else
+            TAG_NAME=""
+          fi
+          
+          # 4. 执行后续逻辑
           if [ -n "$TAG_NAME" ]; then
             echo "Release requested: $TAG_NAME"
             echo "should_publish=true" >> $GITHUB_OUTPUT
             echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            
+            # 处理版本号逻辑
             VERSION=${TAG_NAME#v}
             echo "version=$VERSION" >> $GITHUB_OUTPUT
             MAJOR_MINOR=$(echo $VERSION | grep -oP '^[0-9]+\.[0-9]+')
             echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
           else
-            echo "No release tag found. Skipping publish."
+            echo "No release tag found (Input empty & No commit msg tag). Skipping publish."
             echo "should_publish=false" >> $GITHUB_OUTPUT
           fi
 
@@ -125,7 +146,6 @@ jobs:
             type=raw,value=${{ steps.release_check.outputs.major_minor }},enable=${{ steps.release_check.outputs.major_minor != '' }}
 
       # --- 真正的推送步骤 ---
-      # 关键优化：配置 cache-from 读取之前的缓存
       - name: Build and Push Image
         if: steps.release_check.outputs.should_publish == 'true'
         uses: docker/build-push-action@v6.13.0
@@ -134,9 +154,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 【重点】这里读取缓存。因为是在同一个 Job 的同一个 Buildx 实例中，
-          # 它会直接复用上一步 "Build Nginx for Testing" 已经构建好的 Layer，
-          # 速度极快（通常只需几秒用于 Tag 和 Push），不会重新编译。
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -146,5 +163,11 @@ jobs:
           TAG_NAME="${{ steps.release_check.outputs.tag_name }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG_NAME"
-          git push origin "$TAG_NAME"
+          
+          # 安全检查：防止 Tag 已存在导致报错 (可选)
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists on remote. Skipping git tag push."
+          else
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+          fi
