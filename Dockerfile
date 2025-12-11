@@ -159,16 +159,12 @@ RUN \
 		&& make install -j$(nproc); \
 	fi
 
-# 修复后的 mimalloc 构建指令
 RUN if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
-        echo "Building mimalloc ..." \
-        # 1. 确保安装了 cmake 和构建工具 (如果是 Alpine 系统，请把 apt-get 换成 apk add)
-        && apt-get update && apt-get install -y cmake build-essential wget \
+        echo "Building mimalloc (Alpine) ..." \
+        && apk add --no-cache cmake make g++ linux-headers wget tar \
         && cd /usr/src \
         && wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
-        # 2. 创建一个固定名字的文件夹
         && mkdir -p mimalloc-build \
-        # 3. 使用 --strip-components=1 将源码直接解压进去，无视里面叫 mimalloc-2.1.7 还是 mimalloc-v2.1.7
         && tar -xvf mimalloc.tar.gz -C mimalloc-build --strip-components=1 \
         && cd mimalloc-build \
         && mkdir build && cd build \
