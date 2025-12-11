@@ -9,6 +9,30 @@ on:
         description: 'Force Nginx Version (e.g. 1.29.4)'
         required: false
         type: string
+      openssl_version:
+        description: 'Force OpenSSL Version (e.g. 3.4.0)'
+        required: false
+        type: string
+      jemalloc_version:
+        description: 'Force Jemalloc Version (e.g. 5.3.0)'
+        required: false
+        type: string
+      headers_more_version:
+        description: 'Force Headers More Version (e.g. 0.38)'
+        required: false
+        type: string
+      geoip2_version:
+        description: 'Force GeoIP2 Version (e.g. 3.4)'
+        required: false
+        type: string
+      libatomic_version:
+        description: 'Force Libatomic_ops Version (e.g. 7.8.2)'
+        required: false
+        type: string
+      fancyindex_version:
+        description: 'Force Fancyindex Version (e.g. 0.5.2)'
+        required: false
+        type: string
 
 jobs:
   update:
@@ -24,6 +48,14 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          # 将输入参数映射为环境变量，方便脚本调用
+          IN_NGINX: ${{ inputs.nginx_version }}
+          IN_OPENSSL: ${{ inputs.openssl_version }}
+          IN_JEMALLOC: ${{ inputs.jemalloc_version }}
+          IN_HEADERS_MORE: ${{ inputs.headers_more_version }}
+          IN_GEOIP2: ${{ inputs.geoip2_version }}
+          IN_LIBATOMIC: ${{ inputs.libatomic_version }}
+          IN_FANCYINDEX: ${{ inputs.fancyindex_version }}
         run: |
           UPDATED=false
           MSG=""
@@ -41,12 +73,12 @@ jobs:
             echo $ver | sed -E 's/^(v|release-|release-release-|openssl-)//'
           }
 
-          # --- 1. Nginx (GitHub API) ---
+          # --- 1. Nginx 更新检查 ---
           CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
-          INPUT_NGINX="${{ inputs.nginx_version }}"
           
-          if [ -n "$INPUT_NGINX" ]; then
-            TARGET_NGINX="$INPUT_NGINX"
+          if [ -n "$IN_NGINX" ]; then
+            TARGET_NGINX="$IN_NGINX"
+            echo "Manual Nginx version: $TARGET_NGINX"
           else
             TARGET_NGINX=$(get_gh_ver "nginx/nginx")
           fi
@@ -68,9 +100,15 @@ jobs:
             echo "nginx_ver=$CUR_NGINX" >> $GITHUB_OUTPUT
           fi
 
-          # --- 2. OpenSSL (GitHub API) ---
+          # --- 2. OpenSSL 更新检查 ---
           CUR_SSL=$(grep "ARG OPENSSL_VERSION=" Dockerfile | cut -d= -f2 | tr -d '"')
-          NEW_SSL=$(get_gh_ver "openssl/openssl")
+          
+          if [ -n "$IN_OPENSSL" ]; then
+            NEW_SSL="$IN_OPENSSL"
+            echo "Manual OpenSSL version: $NEW_SSL"
+          else
+            NEW_SSL=$(get_gh_ver "openssl/openssl")
+          fi
           
           if [[ -n "$NEW_SSL" && "$CUR_SSL" != "$NEW_SSL" ]]; then
              sed -i "s/ARG OPENSSL_VERSION=.*/ARG OPENSSL_VERSION=\"$NEW_SSL\"/" Dockerfile
@@ -78,20 +116,34 @@ jobs:
              MSG="$MSG OpenSSL $NEW_SSL,"
           fi
 
-          # --- 3. 其他模块 (GitHub API) ---
+          # --- 3. 遍历其他模块 ---
+          # 格式: Dockerfile参数名|GitHub仓库|环境变量名(对应input)
           MODULES=(
-            "JEMALLOC_VERSION|jemalloc/jemalloc"
-            "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module"
-            "GEOIP2_VERSION|leev/ngx_http_geoip2_module"
-            "LIBATOMIC_VERSION|ivmai/libatomic_ops"
-            "FANCYINDEX_VERSION|aperezdc/ngx-fancyindex"
+            "JEMALLOC_VERSION|jemalloc/jemalloc|IN_JEMALLOC"
+            "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module|IN_HEADERS_MORE"
+            "GEOIP2_VERSION|leev/ngx_http_geoip2_module|IN_GEOIP2"
+            "LIBATOMIC_VERSION|ivmai/libatomic_ops|IN_LIBATOMIC"
+            "FANCYINDEX_VERSION|aperezdc/ngx-fancyindex|IN_FANCYINDEX"
           )
 
           for mod in "${MODULES[@]}"; do
             ARG_NAME="${mod%%|*}"
-            REPO="${mod##*|}"
+            REST="${mod#*|}"
+            REPO="${REST%%|*}"
+            ENV_VAR_NAME="${REST#*|}"
+            
+            # 获取当前 Dockerfile 中的版本
             CUR_VAL=$(grep "ARG $ARG_NAME=" Dockerfile | cut -d= -f2 | tr -d '"')
-            NEW_VAL=$(get_gh_ver "$REPO")
+            
+            # 获取手动输入的版本 (通过间接引用环境变量)
+            MANUAL_VAL="${!ENV_VAR_NAME}"
+            
+            if [ -n "$MANUAL_VAL" ]; then
+              NEW_VAL="$MANUAL_VAL"
+              echo "Manual $ARG_NAME: $NEW_VAL"
+            else
+              NEW_VAL=$(get_gh_ver "$REPO")
+            fi
             
             if [[ -n "$NEW_VAL" && "$CUR_VAL" != "$NEW_VAL" ]]; then
               sed -i "s/ARG $ARG_NAME=.*/ARG $ARG_NAME=\"$NEW_VAL\"/" Dockerfile
@@ -114,7 +166,7 @@ jobs:
             TAG_NAME="v$NGINX_VER-upd$(date +%Y%m%d)"
           fi
 
-          # 关键：检查远程是否已存在该 Tag
+          # 检查远程是否已存在该 Tag
           # 如果存在，说明该版本之前已经处理过，直接退出，跳过后续所有操作（包括编译）
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
             echo "Tag $TAG_NAME already exists. Skipping compilation and update."
