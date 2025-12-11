@@ -9,6 +9,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 【关键修改】只有当是手动触发(workflow_dispatch) 或者 Commit消息包含[RELEASE_TAG: 时才运行
+    # 这意味着您普通的手动 push 会被跳过，不会触发测试和发布
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RELEASE_TAG:')
+    
     steps:
       - uses: actions/checkout@v4
         with:
