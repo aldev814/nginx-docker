@@ -13,6 +13,18 @@ on:
         description: 'Force OpenSSL Version (e.g. 3.4.0)'
         required: false
         type: string
+      malloc_impl:
+        description: 'Select Memory Allocator'
+        required: false
+        type: choice
+        default: 'jemalloc'
+        options:
+          - jemalloc
+          - mimalloc
+      mimalloc_version:
+        description: 'Force Mimalloc Version (e.g. 2.1.9)'
+        required: false
+        type: string
       jemalloc_version:
         description: 'Force Jemalloc Version (e.g. 5.3.0)'
         required: false
@@ -50,6 +62,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IN_NGINX: ${{ inputs.nginx_version }}
           IN_OPENSSL: ${{ inputs.openssl_version }}
+          IN_MALLOC_IMPL: ${{ inputs.malloc_impl }}
+          IN_MIMALLOC: ${{ inputs.mimalloc_version }}
           IN_JEMALLOC: ${{ inputs.jemalloc_version }}
           IN_HEADERS_MORE: ${{ inputs.headers_more_version }}
           IN_GEOIP2: ${{ inputs.geoip2_version }}
@@ -69,15 +83,22 @@ jobs:
             echo $ver | sed -E 's/^(v|release-|release-release-|openssl-)//'
           }
 
+          # --- 0. 切换内存分配器实现 ---
+          if [ -n "$IN_MALLOC_IMPL" ]; then
+            CUR_IMPL=$(grep "ARG MALLOC_IMPL=" Dockerfile | cut -d= -f2 | tr -d '"')
+            if [ "$CUR_IMPL" != "$IN_MALLOC_IMPL" ]; then
+               sed -i "s/ARG MALLOC_IMPL=.*/ARG MALLOC_IMPL=\"$IN_MALLOC_IMPL\"/" Dockerfile
+               UPDATED=true
+               MSG="$MSG Allocator $IN_MALLOC_IMPL,"
+            fi
+          fi
+
           # --- 1. Nginx 更新检查 ---
           CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
           
           if [ -n "$IN_NGINX" ]; then
-            # 如果输入格式为 "x.y" (如 1.28)，则自动查找最新的补丁版本
             if [[ "$IN_NGINX" =~ ^[0-9]+\.[0-9]+$ ]]; then
                echo "Minor version input detected ($IN_NGINX). Resolving to latest patch version..."
-               
-               # 【关键修正】添加 --refs 排除 ^{}，并增加 grep -v 确保万无一失
                RESOLVED_VER=$(git ls-remote --tags --refs https://github.com/nginx/nginx.git "refs/tags/release-$IN_NGINX.*" \
                               | grep -v '\^{}' \
                               | cut -d/ -f3 \
@@ -92,16 +113,13 @@ jobs:
                TARGET_NGINX="$RESOLVED_VER"
                echo "Resolved $IN_NGINX -> $TARGET_NGINX"
             else
-               # 否则假设是完整版本号
                TARGET_NGINX="$IN_NGINX"
                echo "Manual Nginx version: $TARGET_NGINX"
             fi
           else
-            # 自动模式：获取最新 Mainline
             TARGET_NGINX=$(get_gh_ver "nginx/nginx")
           fi
           
-          # 格式校验
           if ! [[ "$TARGET_NGINX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
              echo "Error: Invalid Nginx version detected: $TARGET_NGINX"
              exit 1
@@ -137,6 +155,7 @@ jobs:
           # --- 3. 遍历其他模块 ---
           MODULES=(
             "JEMALLOC_VERSION|jemalloc/jemalloc|IN_JEMALLOC"
+            "MIMALLOC_VERSION|microsoft/mimalloc|IN_MIMALLOC"
             "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module|IN_HEADERS_MORE"
             "GEOIP2_VERSION|leev/ngx_http_geoip2_module|IN_GEOIP2"
             "LIBATOMIC_VERSION|ivmai/libatomic_ops|IN_LIBATOMIC"
@@ -148,6 +167,7 @@ jobs:
             REST="${mod#*|}"
             REPO="${REST%%|*}"
             ENV_VAR_NAME="${REST#*|}"
+            
             CUR_VAL=$(grep "ARG $ARG_NAME=" Dockerfile | cut -d= -f2 | tr -d '"')
             MANUAL_VAL="${!ENV_VAR_NAME}"
             

@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.28.0
+ARG NGINX_VERSION=1.27.2
 
 FROM alpine:3.14 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
@@ -9,10 +9,8 @@ ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dyna
 ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_openssl_md5_sha1.patch"
 
 # openssl
-ARG OPENSSL_VERSION="3.6.0"
+ARG OPENSSL_VERSION="3.4.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
-# [已移除] 移除过时的草案补丁，新版 OpenSSL 和 Nginx 建议使用标准协议或 QuicTLS
-# ARG OPENSSL_PATCH="..."
 
 # zlib by cloudflare
 ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
@@ -21,11 +19,18 @@ ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
 ARG JEMALLOC_VERSION=5.3.0
 ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
 
+# mimalloc
+ARG MIMALLOC_VERSION=2.1.9
+ARG MIMALLOC_URL="https://github.com/microsoft/mimalloc/archive/refs/tags/v${MIMALLOC_VERSION}.tar.gz"
+
+# 默认内存分配器 (jemalloc 或 mimalloc)
+ARG MALLOC_IMPL="jemalloc"
+
 # brotil
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
-ARG HEADERS_MORE_VERSION="0.39"
+ARG HEADERS_MORE_VERSION=0.38
 ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz"
 
 # https://github.com/leev/ngx_http_geoip2_module/releases
@@ -52,6 +57,7 @@ RUN \
 	make \
 	musl-dev \
 	go \
+	cmake \
 	mercurial \
 	pcre-dev \
 	zlib-dev \
@@ -67,8 +73,7 @@ RUN \
 	libtool \
 	automake \
 	git \
-	g++ \
-	cmake
+	g++
 
 WORKDIR /usr/src/
 
@@ -142,14 +147,30 @@ RUN \
 	&& wget -O pcre-${PCRE_VERSION}.tar.gz ${PCRE_URL} \
 	&& tar -xzvf pcre-${PCRE_VERSION}.tar.gz
 
+# 条件构建 jemalloc
 RUN \
-	echo "Downloading and build jemalloc" \
-	&& cd /usr/src \
-	&& wget -O jemalloc.tar.gz ${JEMALLOC_URL} \
-	&& tar -xvf jemalloc.tar.gz\
-	&& cd jemalloc-${JEMALLOC_VERSION} \
-	&& ./configure \
-	&& make install -j$(nproc)
+	if [ "$MALLOC_IMPL" = "jemalloc" ]; then \
+		echo "Building jemalloc ..." \
+		&& cd /usr/src \
+		&& wget -O jemalloc.tar.gz ${JEMALLOC_URL} \
+		&& tar -xvf jemalloc.tar.gz \
+		&& cd jemalloc-${JEMALLOC_VERSION} \
+		&& ./configure \
+		&& make install -j$(nproc); \
+	fi
+
+# 条件构建 mimalloc
+RUN \
+	if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
+		echo "Building mimalloc ..." \
+		&& cd /usr/src \
+		&& wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
+		&& tar -xvf mimalloc.tar.gz \
+		&& cd mimalloc-${MIMALLOC_VERSION} \
+		&& mkdir build && cd build \
+		&& cmake .. -DMI_INSTALL_TOPLEVEL=ON -DMI_BUILD_SHARED=ON -DMI_BUILD_STATIC=OFF \
+		&& make -j$(nproc) && make install; \
+	fi
 
 RUN \
 	echo "Building nginx ..." \
@@ -210,7 +231,7 @@ RUN \
 	--add-module=/usr/src/nginx-http-flv-module \
 	--add-module=/usr/src/ngx_http_substitutions_filter_module \
 	--with-openssl=/usr/src/openssl-${OPENSSL_VERSION} \
-	--with-openssl-opt="zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128  -ljemalloc -Wl,-flto" \
+	--with-openssl-opt="zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128  -l${MALLOC_IMPL} -Wl,-flto" \
 	&& make -j$(getconf _NPROCESSORS_ONLN)
 
 RUN \
