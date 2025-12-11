@@ -1,6 +1,6 @@
 ARG NGINX_VERSION=1.29.4
 
-FROM alpine:3.14 AS base
+FROM alpine:3.23 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
 
 # https://nginx.org/en/download.html
@@ -36,8 +36,8 @@ ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/arc
 # https://github.com/leev/ngx_http_geoip2_module/releases
 ARG GEOIP2_VERSION=3.4
 
-ARG PCRE_VERSION="8.45"
-ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre/${PCRE_VERSION}/pcre-${PCRE_VERSION}.tar.gz"
+ARG PCRE_VERSION="10.37"
+ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/files/pcre2/${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz"
 
 ARG LIBATOMIC_VERSION="7.10.0"
 ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${LIBATOMIC_VERSION}/libatomic_ops-${LIBATOMIC_VERSION}.tar.gz"
@@ -266,7 +266,7 @@ RUN \
 	| xargs -r apk info --installed \
 	| sort -u > /tmp/runDeps.txt
 
-FROM alpine:3.14
+FROM alpine:3.23
 ARG NGINX_VERSION
 ARG NGINX_COMMIT
 
