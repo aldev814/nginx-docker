@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.27.2
+ARG NGINX_VERSION=1.29.4
 
 FROM alpine:3.14 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
@@ -9,7 +9,7 @@ ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dyna
 ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_openssl_md5_sha1.patch"
 
 # openssl
-ARG OPENSSL_VERSION="3.4.0"
+ARG OPENSSL_VERSION="3.6.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
 
 # zlib by cloudflare
@@ -20,17 +20,17 @@ ARG JEMALLOC_VERSION=5.3.0
 ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
 
 # mimalloc
-ARG MIMALLOC_VERSION=2.1.9
+ARG MIMALLOC_VERSION="3.1.5"
 ARG MIMALLOC_URL="https://github.com/microsoft/mimalloc/archive/refs/tags/v${MIMALLOC_VERSION}.tar.gz"
 
 # 默认内存分配器 (jemalloc 或 mimalloc)
-ARG MALLOC_IMPL="jemalloc"
+ARG MALLOC_IMPL="mimalloc"
 
 # brotil
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
-ARG HEADERS_MORE_VERSION=0.38
+ARG HEADERS_MORE_VERSION="0.39"
 ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz"
 
 # https://github.com/leev/ngx_http_geoip2_module/releases
@@ -39,7 +39,7 @@ ARG GEOIP2_VERSION=3.4
 ARG PCRE_VERSION="8.45"
 ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre/${PCRE_VERSION}/pcre-${PCRE_VERSION}.tar.gz"
 
-ARG LIBATOMIC_VERSION="7.8.2"
+ARG LIBATOMIC_VERSION="7.10.0"
 ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${LIBATOMIC_VERSION}/libatomic_ops-${LIBATOMIC_VERSION}.tar.gz"
 
 ARG HTTP_FLV_URL="https://github.com/winshining/nginx-http-flv-module.git"
