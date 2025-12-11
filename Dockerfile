@@ -159,18 +159,22 @@ RUN \
 		&& make install -j$(nproc); \
 	fi
 
-# 条件构建 mimalloc
-RUN \
-	if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
-		echo "Building mimalloc ..." \
-		&& cd /usr/src \
-		&& wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
-		&& tar -xvf mimalloc.tar.gz \
-		&& cd mimalloc-${MIMALLOC_VERSION} \
-		&& mkdir build && cd build \
-		&& cmake .. -DMI_INSTALL_TOPLEVEL=ON -DMI_BUILD_SHARED=ON -DMI_BUILD_STATIC=OFF \
-		&& make -j$(nproc) && make install; \
-	fi
+# 修复后的 mimalloc 构建指令
+RUN if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
+        echo "Building mimalloc ..." \
+        # 1. 确保安装了 cmake 和构建工具 (如果是 Alpine 系统，请把 apt-get 换成 apk add)
+        && apt-get update && apt-get install -y cmake build-essential wget \
+        && cd /usr/src \
+        && wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
+        # 2. 创建一个固定名字的文件夹
+        && mkdir -p mimalloc-build \
+        # 3. 使用 --strip-components=1 将源码直接解压进去，无视里面叫 mimalloc-2.1.7 还是 mimalloc-v2.1.7
+        && tar -xvf mimalloc.tar.gz -C mimalloc-build --strip-components=1 \
+        && cd mimalloc-build \
+        && mkdir build && cd build \
+        && cmake .. -DMI_INSTALL_TOPLEVEL=ON -DMI_BUILD_SHARED=ON -DMI_BUILD_STATIC=OFF \
+        && make -j$(nproc) && make install; \
+    fi
 
 RUN \
 	echo "Building nginx ..." \
