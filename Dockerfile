@@ -198,7 +198,8 @@ RUN \
 	--http-proxy-temp-path=/var/cache/nginx/proxy_temp \
 	--http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
 	--http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp \
-	--http-scgi-temp-path=/var/cache/nginx/scgi_temp \
+	# --http-scgi-temp-path=/var/cache/nginx/scgi_temp \
+	--without-http_scgi_module \
 	--user=nginx \
 	--group=nginx \
 	--with-http_ssl_module \
@@ -206,7 +207,7 @@ RUN \
 	--with-http_addition_module \
 	--with-http_sub_module \
 	--with-http_dav_module \
-	--with-http_flv_module \
+	# --with-http_flv_module \
 	--with-http_mp4_module \
 	--with-http_gunzip_module \
 	--with-http_gzip_static_module \
@@ -216,16 +217,16 @@ RUN \
 	--with-http_auth_request_module \
 	--with-http_xslt_module=dynamic \
 	--with-http_image_filter_module=dynamic \
-	--with-http_geoip_module=dynamic \
+	# --with-http_geoip_module=dynamic \
 	--with-threads \
 	--with-stream \
 	--with-stream_ssl_module \
 	--with-stream_ssl_preread_module \
 	--with-stream_realip_module \
-	--with-stream_geoip_module=dynamic \
+	# --with-stream_geoip_module=dynamic \
 	--with-http_slice_module \
-	--with-mail \
-	--with-mail_ssl_module \
+	# --with-mail \
+	# --with-mail_ssl_module \
 	--with-compat \
 	--with-file-aio \
 	--with-http_v2_module \
@@ -237,8 +238,8 @@ RUN \
 	--add-module=/usr/src/headers-more-nginx-module-${HEADERS_MORE_VERSION} \
 	--add-module=/usr/src/ngx-fancyindex-${FANCYINDEX_VERSION} \
 	--add-module=/usr/src/ngx_brotli \
-	--add-module=/usr/src/ngx_http_geoip2_module \
-	--add-module=/usr/src/nginx-http-flv-module \
+	# --add-module=/usr/src/ngx_http_geoip2_module \
+	# --add-module=/usr/src/nginx-http-flv-module \
 	--add-module=/usr/src/ngx_http_substitutions_filter_module \
 	--with-openssl=/usr/src/openssl-${OPENSSL_VERSION} \
 	--with-openssl-opt="zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128  -l${MALLOC_IMPL} -Wl,-flto" \
