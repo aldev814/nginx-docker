@@ -20,7 +20,7 @@ ARG JEMALLOC_VERSION=5.3.0
 ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
 
 # mimalloc
-ARG MIMALLOC_VERSION="3.1.5"
+ARG MIMALLOC_VERSION="3.2.6"
 ARG MIMALLOC_URL="https://github.com/microsoft/mimalloc/archive/refs/tags/v${MIMALLOC_VERSION}.tar.gz"
 
 # 默认内存分配器 (jemalloc 或 mimalloc)
