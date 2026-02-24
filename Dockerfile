@@ -47,7 +47,7 @@ ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${L
 
 ARG HTTP_FLV_URL="https://github.com/winshining/nginx-http-flv-module.git"
 
-ARG FANCYINDEX_VERSION="0.5.2"
+ARG FANCYINDEX_VERSION="0.6.0"
 ARG FANCYINDEX_URL="https://github.com/aperezdc/ngx-fancyindex/releases/download/v${FANCYINDEX_VERSION}/ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz"
 
 ARG SUBS_FILTER_URL="https://github.com/yaoweibin/ngx_http_substitutions_filter_module.git"
