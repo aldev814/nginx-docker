@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.29.8
+ARG NGINX_VERSION=1.30.0
 
 FROM alpine:3.23 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
@@ -9,7 +9,7 @@ ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dyna
 ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_openssl_md5_sha1.patch"
 
 # openssl
-ARG OPENSSL_VERSION="3.6.2"
+ARG OPENSSL_VERSION="4.0.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
 
 # zlib by cloudflare
