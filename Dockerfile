@@ -1,4 +1,4 @@
-ARG NGINX_VERSION=1.31.0
+ARG NGINX_VERSION=1.31.1
 
 FROM alpine:3.23 AS base
 LABEL maintainer="NGINX Docker Maintainers <aldev814>"
