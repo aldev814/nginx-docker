@@ -30,7 +30,7 @@ ARG MALLOC_IMPL="mimalloc"
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
-ARG HEADERS_MORE_VERSION="0.39"
+ARG HEADERS_MORE_VERSION="0.40"
 ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz"
 
 # https://github.com/leev/ngx_http_geoip2_module/releases
