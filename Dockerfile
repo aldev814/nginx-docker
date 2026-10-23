@@ -6,7 +6,6 @@ LABEL maintainer="NGINX Docker Maintainers <aldev814>"
 # https://nginx.org/en/download.html
 ARG NGINX_VERSION
 ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dynamic_tls_records.patch"
-ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_openssl_md5_sha1.patch"
 
 # openssl
 ARG OPENSSL_VERSION="4.0.3"
@@ -93,14 +92,18 @@ RUN \
 	&& wget -O openssl-${OPENSSL_VERSION}.tar.gz ${OPENSSL_URL} \
 	&& tar -xzvf openssl-${OPENSSL_VERSION}.tar.gz
 
+# Adapted from kn007/patch for the Nginx 1.31.8 source layout.
+COPY patches/use_openssl_md5_sha1.patch /usr/src/patches/use_openssl_md5_sha1.patch
+
 RUN \
 	echo "Cloning nginx $NGINX_VERSION ..." \
 	&& wget -O nginx.tar.gz https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz \
 	&& tar -xzvf nginx.tar.gz -C /usr/src \
 	&& rm -f nginx.tar.gz \
 	&& cd /usr/src/nginx-${NGINX_VERSION} \
-	&& curl ${NGINX_PATCH} | patch -p1 \
-	&& curl ${NGINX_CRYPT_PATCH} | patch -p1
+	&& curl -fSL ${NGINX_PATCH} -o /usr/src/patches/nginx_dynamic_tls_records.patch \
+	&& patch -p1 < /usr/src/patches/nginx_dynamic_tls_records.patch \
+	&& patch -p1 < /usr/src/patches/use_openssl_md5_sha1.patch
 
 RUN \
 	echo "Cloning ngx_http2_geoip2_module ..." \
