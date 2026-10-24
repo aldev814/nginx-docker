@@ -1,127 +1,113 @@
-<p align="center">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c5/Nginx_logo.svg" width="150" />
-</p>
+# nginx-docker
 
-<p align="center">A web server that can also be used as a reverse proxy, load balancer, mail proxy and HTTP cache.</p>
+[![Test and Publish](https://github.com/aldev814/nginx-docker/actions/workflows/test_and_publish.yml/badge.svg)](https://github.com/aldev814/nginx-docker/actions/workflows/test_and_publish.yml)
 
-<p align="center">
-<img src="https://github.com/InsulateJustf/docker-nginx-http2-brotli/actions/workflows/push.yml/badge.svg" />
-<img src="https://img.shields.io/github/v/release/InsulateJustf/docker-nginx-http2-brotli" />
-</p>
+[中文](README.md) | [English](README.EN.md)
 
-<p align="center">
-<a href="https://github.com/InsulateJustf/docker-nginx-http2-brotli/blob/main/README.md">中文 |<a/>
-<a href="https://github.com/InsulateJustf/docker-nginx-http2-brotli/blob/main/README.EN.md">English<a/>
-</p>
+基于 Alpine 的自定义 Nginx Docker 镜像，用于网站托管、反向代理和 TCP 分流。本项目基于 [InsulateJustf/docker-nginx-http2-brotli](https://github.com/InsulateJustf/docker-nginx-http2-brotli) 维护和调整。
 
-## 这是个啥玩意儿？
-稳定和最新的 nginx，支持 HTTP/2, brotli压缩。包含了 Cloudflare 优化的 zlib，TLS 功能使用 Alpine 提供的 OpenSSL 库。除此之外，我还添加了一些 nginx 模块。
+## 当前构建配置
 
-## 里面有些啥？
+以下描述对应仓库源码；已发布镜像可能晚于源码更新。版本和编译参数以 [Dockerfile](Dockerfile) 及实际镜像的 `nginx -V` 为准。
 
-* [zlib by Cloudflare](https://github.com/cloudflare/zlib)
-* 使用 Alpine 提供的 OpenSSL 库，支持 TLS 1.3
-* [Btotli Compression by google](https://github.com/google/ngx_brotli)
-* [ngx_http_geoip2_module](https://github.com/leev/ngx_http_geoip2_module/)
-  
-  ### 详情如下:
-```
-nginx version: nginx/1.25.1
-built by gcc 10.3.1 20210424 (Alpine 10.3.1_git20210424) 
-OpenSSL: provided by Alpine packages (version depends on image build)
-TLS SNI support enabled
-configure arguments: 
-	--prefix=/etc/nginx 
-	--sbin-path=/usr/sbin/nginx 
-	--modules-path=/usr/lib/nginx/modules 
-	--conf-path=/etc/nginx/nginx.conf 
-	--error-log-path=/var/log/nginx/error.log 
-	--http-log-path=/var/log/nginx/access.log 
-	--pid-path=/var/run/nginx.pid 
-	--lock-path=/var/run/nginx.lock 
-	--http-client-body-temp-path=/var/cache/nginx/client_temp 
-	--http-proxy-temp-path=/var/cache/nginx/proxy_temp 
-	--http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp 
-	--http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp 
-	--http-scgi-temp-path=/var/cache/nginx/scgi_temp 
-	--user=nginx 
-	--group=nginx 
-	--with-http_ssl_module 
-	--with-http_realip_module 
-	--with-http_addition_module 
-	--with-http_sub_module 
-	--with-http_dav_module 
-	--with-http_flv_module 
-	--with-http_mp4_module 
-	--with-http_gunzip_module 
-	--with-http_gzip_static_module 
-	--with-http_random_index_module 
-	--with-http_secure_link_module 
-	--with-http_stub_status_module 
-	--with-http_auth_request_module 
-	--with-http_xslt_module=dynamic 
-	--with-http_image_filter_module=dynamic 
-	--with-http_geoip_module=dynamic 
-	--with-threads 
-	--with-stream 
-	--with-stream_ssl_module 
-	--with-stream_ssl_preread_module 
-	--with-stream_realip_module 
-	--with-stream_geoip_module=dynamic 
-	--with-http_slice_module 
-	--with-mail 
-	--with-mail_ssl_module 
-	--with-compat 
-	--with-file-aio 
-	--with-http_v2_module 
-	--with-zlib=/usr/src/zlib 
-	--with-pcre=/usr/src/pcre-8.45 
-	--with-pcre-jit 
-	--add-module=/usr/src/headers-more-nginx-module-0.34 
-	--add-module=/usr/src/ngx-fancyindex-0.5.2 
-	--add-module=/usr/src/ngx_brotli 
-	--add-module=/usr/src/ngx_http_geoip2_module 
-	--add-module=/usr/src/nginx-http-flv-module 
-	--add-module=/usr/src/ngx_http_substitutions_filter_module 
-```
-## 咋用？
+| 组件 | 当前配置 |
+| --- | --- |
+| Nginx | 1.31.8，从官方源码编译 |
+| 基础镜像 | Alpine 3.23，多阶段构建 |
+| OpenSSL | 使用 Alpine 的开发包和运行库，不再自行下载、编译；版本随软件源变化 |
+| gzip | 使用 Cloudflare zlib 源码构建；默认开启 gzip |
+| Brotli | 编译 ngx_brotli；默认开启 `brotli`、`brotli_static` |
+| 响应头控制 | headers-more 0.40，默认配置使用其设置和清理响应头 |
+| 正则表达式 | PCRE2 10.47，编译 JIT 支持；使用时需配置 `pcre_jit on` |
+| 内存分配器 | 使用系统分配器；mimalloc 构建代码已注释保留 |
 
-### 快速开始
+仍保留 jemalloc 的条件构建代码，但单独构建该库不会替换 Nginx 的分配器。当前没有通过链接或 `LD_PRELOAD` 接入 mimalloc/jemalloc；修改 `MALLOC_IMPL` 不代表运行时替换已生效。
 
-```
-docker pull justf/nginx-http2-brotli:latest
+### 模块和补丁
+
+| 项目 | 当前状态 |
+| --- | --- |
+| HTTPS、HTTP/2、HTTP/3 | 已编译支持；需在站点配置中启用。HTTP/3 还需开放并映射 UDP 端口 |
+| stream、stream SSL、SNI 预读、HTTP/stream realip | 已编译支持 |
+| addition、sub、DAV、MP4、gunzip、gzip_static、random_index、secure_link、stub_status、auth_request、slice | 已编译支持，是否生效取决于配置 |
+| threads、file AIO、动态模块兼容支持 | 已编译支持 |
+| fancyindex、substitutions filter、GeoIP2、HTTP-FLV | 保留源码下载，不编译 |
+| 图片处理、XSLT、官方 GeoIP、官方 FLV、mail | 未启用编译 |
+| SCGI | 显式禁用 |
+| 动态 TLS record 补丁 | 保留 kn007 的 `nginx_dynamic_tls_records.patch`；动态 record 功能默认关闭，需配置 `ssl_dyn_rec_enable on`；补丁另将 TLS session 序列化大小上限提高到 16K |
+| OpenSSL MD5/SHA1 补丁、libatomic_ops | 已移除，使用 Nginx 原生哈希及原子操作实现 |
+
+Cloudflare zlib、ngx_brotli、HTTP-FLV 和 substitutions filter 从上游仓库获取源码，未全部固定到提交；相同 Dockerfile 在不同日期构建的内容可能不同。
+
+## 构建与运行
+
+需要能够运行 Linux 容器的 Docker。容器内部使用 Alpine，并不限制宿主机发行版，可在 Debian 等 Linux 系统运行。
+
+```sh
+docker build -t aldev814/nginx-docker:local .
+docker run --rm aldev814/nginx-docker:local nginx -V
 ```
 
-或者
+镜像不附带默认站点页面。以下例子创建一个 HTTP 站点：
 
-```
-docker pull ghcr.io/InsulateJustf/nginx-http2-brotli:latest
-```
+```sh
+mkdir -p public
+printf '<p>It works!</p>\n' > public/index.html
+cat > site.conf <<'CONF'
+server {
+    listen 80;
+    server_name _;
 
-### Nginx 配置
-* 挂载在 /etc/nginx/main.d 中的 .conf 文件将被包含在 nginx.conf 的上下文中。（你可以在这里调用 env 指令）
-
-* 挂载在 /etc/nginx/conf.d 中的 .conf 文件将被包含在 nginx.conf 中的 http 块中。
-```
-include /etc/nginx/main.d/*.conf;
-...
-http{
-        ...;
-        include /etc/nginx/conf.d/*.conf;
-
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
 }
+CONF
+
+docker run -d --name nginx \
+  -p 8080:80 \
+  -v "$PWD/public:/usr/share/nginx/html:ro" \
+  -v "$PWD/site.conf:/etc/nginx/conf.d/site.conf:ro" \
+  aldev814/nginx-docker:local
+
+curl http://localhost:8080
+docker logs nginx
 ```
-#### SSL 配置
-这个镜像里包含了了来自 [ Mozilla 的 DHparameter 文件](https://ssl-config.mozilla.org/ffdhe2048.txt)并且保存在 ```/etc/ssl/dhparam.pem``` 中。
-所以你应该在你的 nginx 配置中添加如下一行：
+
+发布工作流的目标镜像为 `aldev814/nginx-docker` 和 `ghcr.io/aldev814/nginx-docker`（Docker Hub 用户名由仓库 Secret 决定，GHCR 命名空间由触发者决定）。使用已发布镜像时，选择已完成发布的标签，例如：
+
+```sh
+docker pull ghcr.io/aldev814/nginx-docker:latest
 ```
-ssl_dhparam /etc/ssl/dhparam.pem;
-```
 
-## 感谢
+## 配置挂载
 
-[@kn007/patch](https://github.com/kn007/patch)
+| 路径 | 用途 |
+| --- | --- |
+| `/etc/nginx/nginx.conf` | 主配置；挂载文件可替换镜像默认配置 |
+| `/etc/nginx/main.d/*.conf` | 默认主配置在 main 上下文包含这些文件，可放 `env`、`load_module`、`stream` 等配置 |
+| `/etc/nginx/conf.d/*.conf` | 默认主配置在 http 上下文包含这些文件，可放站点配置 |
+| `/etc/nginx/conf.d/ssl_common.conf` | 镜像提供的 TLS 通用配置，默认包含于 http 上下文 |
+| `/etc/ssl/dhparam.pem` | 构建时获取的 Mozilla FFDHE 2048 参数 |
 
-[@akafeng/docker-nginx](https://github.com/akafeng/docker-nginx)
+挂载整个 `conf.d` 目录会遮盖镜像内的 `ssl_common.conf`；替换 `nginx.conf` 后也需自行保留需要的 include。
 
-[@macbre/docker-nginx-http3](https://www.github.com/macbre/docker-nginx-http3)
+TLS 通用配置限定 TLS 1.2/1.3，并配置 session cache、关闭 session tickets、设置密码套件及 OCSP stapling。HTTPS 站点仍需自行配置证书和私钥。HTTP/3 不会因为编译支持而自动启用，当前 CI 未验证 HTTP/3。
+
+默认主配置还会清理部分响应头、设置 CSP 等响应头，并使用 `worker_processes 1`。部署前请按应用检查响应头策略和 worker 数量。容器默认以前台 Nginx 进程运行，将默认访问、错误日志输出至 stdout/stderr。
+
+## 自动更新、测试与发布
+
+- **Update Dependencies**：每天 UTC 00:00（北京时间 08:00）及手动触发，检查 Nginx 和保留依赖的版本；有变化时提交 Dockerfile，并通过提交信息里的发布标记请求构建、发布。暂停编译模块及分配器的版本字段仍可能更新。
+- **Test and Publish**：手动触发，或 main 分支提交信息包含 `[RELEASE_TAG:...]` 时执行构建。普通 push 会触发工作流，但构建 job 会跳过。
+- 测试包括镜像启动、HTTP/1.1 Brotli 响应及 HTTPS/HTTP/2 响应。构建阶段也执行 `nginx -t`。
+- 手动 `release_tag` 留空，且当前提交没有发布标记时，仅构建测试；填写有效标签（如 `v1.31.8`）或提交带有发布标记时，测试通过后推送镜像并创建 Git tag。
+- 发布镜像标签包括 `latest`、去掉 `v` 前缀的完整版本及主次版本。需要配置 `GH_PAT`、`DOCKER_USERNAME`、`DOCKER_TOKEN`，并为 `GITHUB_TOKEN` 提供所需仓库包写入权限。
+
+## 致谢
+
+- [InsulateJustf/docker-nginx-http2-brotli](https://github.com/InsulateJustf/docker-nginx-http2-brotli)：本项目的上游仓库。
+- [kn007/patch](https://github.com/kn007/patch)：Nginx 动态 TLS record 补丁。
+- [Cloudflare zlib](https://github.com/cloudflare/zlib)、[ngx_brotli](https://github.com/google/ngx_brotli)、[headers-more](https://github.com/openresty/headers-more-nginx-module)：压缩与响应头模块。
+- [akafeng/docker-nginx](https://github.com/akafeng/docker-nginx)、[macbre/docker-nginx-http3](https://github.com/macbre/docker-nginx-http3)：上游保留的参考项目。

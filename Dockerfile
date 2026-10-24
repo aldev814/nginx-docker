@@ -18,7 +18,7 @@ ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMAL
 ARG MIMALLOC_VERSION="3.6.0"
 ARG MIMALLOC_URL="https://github.com/microsoft/mimalloc/archive/refs/tags/v${MIMALLOC_VERSION}.tar.gz"
 
-# 默认内存分配器 (jemalloc 或 mimalloc)
+# Allocator build selector; the runtime currently uses the system allocator.
 ARG MALLOC_IMPL="mimalloc"
 
 # brotil
@@ -140,22 +140,22 @@ RUN \
 		&& make install -j$(nproc); \
 	fi
 
-# Only build the shared allocator library used by this image.
-RUN if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
-        echo "Building mimalloc (Alpine) ..." \
-        && apk add --no-cache cmake make g++ linux-headers wget tar \
-        && cd /usr/src \
-        && echo "Downloading from: ${MIMALLOC_URL}" \
-        && wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
-        && mkdir -p mimalloc-build \
-        && tar -xvf mimalloc.tar.gz -C mimalloc-build --strip-components=1 \
-        && cd mimalloc-build \
-        && mkdir build && cd build \
-        && cmake .. -DCMAKE_BUILD_TYPE=Release \
-            -DMI_INSTALL_TOPLEVEL=ON -DMI_BUILD_SHARED=ON \
-            -DMI_BUILD_STATIC=OFF -DMI_BUILD_OBJECT=OFF -DMI_BUILD_TESTS=OFF \
-        && make -j$(nproc) && make install; \
-    fi
+# mimalloc build is temporarily disabled; retain the recipe for future testing.
+# RUN if [ "$MALLOC_IMPL" = "mimalloc" ]; then \
+#         echo "Building mimalloc (Alpine) ..." \
+#         && apk add --no-cache cmake make g++ linux-headers wget tar \
+#         && cd /usr/src \
+#         && echo "Downloading from: ${MIMALLOC_URL}" \
+#         && wget -O mimalloc.tar.gz ${MIMALLOC_URL} \
+#         && mkdir -p mimalloc-build \
+#         && tar -xvf mimalloc.tar.gz -C mimalloc-build --strip-components=1 \
+#         && cd mimalloc-build \
+#         && mkdir build && cd build \
+#         && cmake .. -DCMAKE_BUILD_TYPE=Release \
+#             -DMI_INSTALL_TOPLEVEL=ON -DMI_BUILD_SHARED=ON \
+#             -DMI_BUILD_STATIC=OFF -DMI_BUILD_OBJECT=OFF -DMI_BUILD_TESTS=OFF \
+#         && make -j$(nproc) && make install; \
+#     fi
 
 RUN \
 	echo "Building nginx ..." \
