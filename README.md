@@ -75,7 +75,7 @@ curl http://localhost:8080
 docker logs nginx
 ```
 
-发布工作流的目标镜像为 `aldev814/nginx-docker` 和 `ghcr.io/aldev814/nginx-docker`（Docker Hub 用户名由仓库 Secret 决定，GHCR 命名空间由触发者决定）。使用已发布镜像时，选择已完成发布的标签，例如：
+发布工作流的目标镜像为 `aldev814/nginx-docker` 和 `ghcr.io/aldev814/nginx-docker`（Docker Hub 用户名由仓库 Secret 决定，GHCR 使用仓库所有者命名空间）。使用已发布镜像时，选择已完成发布的标签，例如：
 
 ```sh
 docker pull ghcr.io/aldev814/nginx-docker:latest
@@ -99,11 +99,28 @@ TLS 通用配置限定 TLS 1.2/1.3，并配置 session cache、关闭 session ti
 
 ## 自动更新、测试与发布
 
-- **Update Dependencies**：每天 UTC 00:00（北京时间 08:00）及手动触发，检查 Nginx 和保留依赖的版本；有变化时提交 Dockerfile，并通过提交信息里的发布标记请求构建、发布。暂停编译模块及分配器的版本字段仍可能更新。
-- **Test and Publish**：手动触发，或 main 分支提交信息包含 `[RELEASE_TAG:...]` 时执行构建。普通 push 会触发工作流，但构建 job 会跳过。
-- 测试包括镜像启动、HTTP/1.1 Brotli 响应及 HTTPS/HTTP/2 响应。构建阶段也执行 `nginx -t`。
-- 手动 `release_tag` 留空，且当前提交没有发布标记时，仅构建测试；填写有效标签（如 `v1.31.8`）或提交带有发布标记时，测试通过后推送镜像并创建 Git tag。
-- 发布镜像标签包括 `latest`、去掉 `v` 前缀的完整版本及主次版本。需要配置 `GH_PAT`、`DOCKER_USERNAME`、`DOCKER_TOKEN`，并为 `GITHUB_TOKEN` 提供所需仓库包写入权限。
+两个工作流均运行于 GitHub Actions 的 Ubuntu 24.04 runner，使用 Bash 严格错误处理、超时和并发控制。Actions 固定到已核对的发布提交。
+
+- **Update Dependencies**：每天 UTC 00:00（北京时间 08:00）及手动触发，只允许从 main 运行。更新 Nginx、headers-more、PCRE2，并创建依赖更新 PR，不直接修改 main。
+- Nginx 自动更新保持当前主次版本分支，手动指定完整版本或主次版本可调整目标；显式降级需要勾选 `allow_downgrade`。备用分配器及未编译模块不再参与自动更新。
+- 自动更新 PR 的提交和标题携带唯一的 `[RELEASE_TAG:v版本-upd运行ID]` 标记。应在 PR 测试通过后合并，并在 merge/squash 提交中保留该标记，才会请求自动发布。建议将构建检查设为 main 的必需检查。
+- **Test and Publish**：main 的普通 push、PR 及手动运行都会构建测试。PR 只有只读权限，不获取发布凭据；手动 `release_tag` 留空始终只测试，不读取提交中的发布标记。
+- 测试沿用仓库的静态站点配置，检查 HTTP/1.1 状态码、Brotli、响应正文、Server 头缺失、HTTPS/HTTP/2 及 TLS 1.2/1.3。启动采用有上限的就绪轮询，失败时上传诊断日志，并始终清理容器。
+- 发布仅允许 main 当前最新提交。手动标签须与 Dockerfile 的 Nginx 版本一致，例如 `v1.31.8-upd1`。已有 Git tag 一律拒绝覆盖；发布阶段串行执行并再次检查 main，避免旧构建更新 `latest`。
+- 镜像只构建一次。测试通过后将镜像保存为临时 artifact；独立发布 job 校验镜像 ID 和源码 revision，再推送同一镜像，不二次构建。
+- 发布先保留 Git tag，再推送完整版本标签，最后更新主次版本及 `latest`。Git 与两个注册表不支持跨服务原子事务；若中途失败，可能留下已保留的标签或部分镜像。应检查已有发布，并用新的唯一标签重试，不覆盖旧标签。
+
+GHCR 镜像地址固定为 `ghcr.io/<仓库所有者>/<仓库名>`，Docker Hub 为 `<DOCKER_USERNAME>/<仓库名>`，不随触发者变化。当前仓库的 GHCR 地址为 `ghcr.io/aldev814/nginx-docker`。
+
+自动更新 PR 需要 `GH_PAT`，具备推送更新分支和创建 PR 的权限，以便 PR 事件能触发 CI；仅执行构建测试不需要此 Secret。发布需要 `DOCKER_USERNAME`、`DOCKER_TOKEN`，发布 job 为 `GITHUB_TOKEN` 显式声明 `contents: write` 和 `packages: write`。仓库/组织策略也须允许相应操作。
+
+工作流逻辑的回归检查可单独运行，无需 Docker：
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+```
+
+实际镜像构建和 HTTP/TLS 集成测试由 GitHub Actions 执行；当前不包含 HTTP/3 或业务代理测试。
 
 ## 致谢
 

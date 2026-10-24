@@ -6,190 +6,90 @@ on:
   workflow_dispatch:
     inputs:
       nginx_version:
-        description: 'Force Nginx Version (e.g. 1.29.4 or 1.28)'
-        required: false
+        description: 'Nginx version or series (e.g. 1.31.8 or 1.31); empty keeps the current series'
         type: string
-      malloc_impl:
-        description: 'Select Memory Allocator'
         required: false
-        type: choice
-        default: 'jemalloc'
-        options:
-          - jemalloc
-          - mimalloc
-      mimalloc_version:
-        description: 'Force Mimalloc Version (e.g. 2.1.9)'
-        required: false
-        type: string
-      jemalloc_version:
-        description: 'Force Jemalloc Version (e.g. 5.3.0)'
-        required: false
-        type: string
       headers_more_version:
-        description: 'Force Headers More Version (e.g. 0.38)'
-        required: false
+        description: 'Headers More stable version; empty selects the latest stable version'
         type: string
-      geoip2_version:
-        description: 'Force GeoIP2 Version (e.g. 3.4)'
         required: false
+      pcre2_version:
+        description: 'PCRE2 stable version; empty selects the latest stable version'
         type: string
-      fancyindex_version:
-        description: 'Force Fancyindex Version (e.g. 0.5.2)'
         required: false
-        type: string
+      allow_downgrade:
+        description: 'Allow an explicitly requested version downgrade'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-updates
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
-          fetch-depth: 0
+      - name: Require main branch
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Run dependency updates from main'; exit 1; }
 
-      - name: Check All Updates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check workflow regression tests
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Prepare active dependency updates
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           IN_NGINX: ${{ inputs.nginx_version }}
-          IN_MALLOC_IMPL: ${{ inputs.malloc_impl }}
-          IN_MIMALLOC: ${{ inputs.mimalloc_version }}
-          IN_JEMALLOC: ${{ inputs.jemalloc_version }}
           IN_HEADERS_MORE: ${{ inputs.headers_more_version }}
-          IN_GEOIP2: ${{ inputs.geoip2_version }}
-          IN_FANCYINDEX: ${{ inputs.fancyindex_version }}
-        run: |
-          UPDATED=false
-          MSG=""
-        
-          get_gh_ver() {
-            repo=$1
-            # 1. 优先尝试获取 Release (Mimalloc 会在这里失败，返回 null)
-            ver=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          
-            # 2. 如果没有 Release (针对 Mimalloc 的核心修复逻辑)
-            if [ -z "$ver" ] || [ "$ver" == "null" ]; then
-              # 使用 git ls-remote 列出 tags
-              # grep -E '^v?[0-9]+\.[0-9]+(\.[0-9]+)?$' -> 这行是关键！
-              # 它强制要求 Tag 必须以数字开头(或v接数字)，从而过滤掉 "vwin-m4"
-              ver=$(git ls-remote --tags --refs --sort="v:refname" "https://github.com/$repo.git" \
-                    | awk -F/ '{print $NF}' \
-                    | grep -E '^v?[0-9]+\.[0-9]+(\.[0-9]+)?$' \
-                    | tail -n 1)
-            fi
-          
-            # 3. 清理前缀 (把 v2.1.7 变成 2.1.7)
-            echo "$ver" | sed -E 's/^(v|release-|release-release-|openssl-)//'
-          }
-         
-          # --- 0. 切换内存分配器实现 ---
-          if [ -n "$IN_MALLOC_IMPL" ]; then
-            CUR_IMPL=$(grep "ARG MALLOC_IMPL=" Dockerfile | cut -d= -f2 | tr -d '"')
-            if [ "$CUR_IMPL" != "$IN_MALLOC_IMPL" ]; then
-               sed -i "s/ARG MALLOC_IMPL=.*/ARG MALLOC_IMPL=\"$IN_MALLOC_IMPL\"/" Dockerfile
-               UPDATED=true
-               MSG="$MSG Allocator $IN_MALLOC_IMPL,"
-            fi
-          fi
+          IN_PCRE2: ${{ inputs.pcre2_version }}
+          ALLOW_DOWNGRADE: ${{ inputs.allow_downgrade }}
+        run: python3 .github/scripts/update_dependencies.py --output-dir "$RUNNER_TEMP/dependency-update"
 
-          # --- 1. Nginx 更新检查 ---
-          CUR_NGINX=$(grep "ARG NGINX_VERSION=" Dockerfile | cut -d= -f2)
-          
-          if [ -n "$IN_NGINX" ]; then
-            if [[ "$IN_NGINX" =~ ^[0-9]+\.[0-9]+$ ]]; then
-               echo "Minor version input detected ($IN_NGINX). Resolving to latest patch version..."
-               RESOLVED_VER=$(git ls-remote --tags --refs https://github.com/nginx/nginx.git "refs/tags/release-$IN_NGINX.*" \
-                              | grep -v '\^{}' \
-                              | cut -d/ -f3 \
-                              | sed 's/^release-//' \
-                              | sort -V \
-                              | tail -n 1)
-               
-               if [ -z "$RESOLVED_VER" ]; then
-                 echo "Error: Could not find any version matching $IN_NGINX.x"
-                 exit 1
-               fi
-               TARGET_NGINX="$RESOLVED_VER"
-               echo "Resolved $IN_NGINX -> $TARGET_NGINX"
-            else
-               TARGET_NGINX="$IN_NGINX"
-               echo "Manual Nginx version: $TARGET_NGINX"
-            fi
-          else
-            TARGET_NGINX=$(get_gh_ver "nginx/nginx")
-          fi
-          
-          if ! [[ "$TARGET_NGINX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-             echo "Error: Invalid Nginx version detected: $TARGET_NGINX"
-             exit 1
-          fi
-          
-          if [[ "$CUR_NGINX" != "$TARGET_NGINX" ]]; then
-            sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=$TARGET_NGINX/" Dockerfile
-            UPDATED=true
-            MSG="$MSG Nginx $TARGET_NGINX,"
-            echo "nginx_changed=true" >> $GITHUB_OUTPUT
-            echo "nginx_ver=$TARGET_NGINX" >> $GITHUB_OUTPUT
-          else
-            echo "nginx_changed=false" >> $GITHUB_OUTPUT
-            echo "nginx_ver=$CUR_NGINX" >> $GITHUB_OUTPUT
-          fi
-
-          # --- 2. 遍历其他模块 ---
-          MODULES=(
-            "JEMALLOC_VERSION|jemalloc/jemalloc|IN_JEMALLOC"
-            "MIMALLOC_VERSION|microsoft/mimalloc|IN_MIMALLOC"
-            "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module|IN_HEADERS_MORE"
-            "GEOIP2_VERSION|leev/ngx_http_geoip2_module|IN_GEOIP2"
-            "FANCYINDEX_VERSION|aperezdc/ngx-fancyindex|IN_FANCYINDEX"
-          )
-
-          for mod in "${MODULES[@]}"; do
-            ARG_NAME="${mod%%|*}"
-            REST="${mod#*|}"
-            REPO="${REST%%|*}"
-            ENV_VAR_NAME="${REST#*|}"
-            
-            CUR_VAL=$(grep "ARG $ARG_NAME=" Dockerfile | cut -d= -f2 | tr -d '"')
-            MANUAL_VAL="${!ENV_VAR_NAME}"
-            
-            if [ -n "$MANUAL_VAL" ]; then
-              NEW_VAL="$MANUAL_VAL"
-              echo "Manual $ARG_NAME: $NEW_VAL"
-            else
-              NEW_VAL=$(get_gh_ver "$REPO")
-            fi
-            
-            if [[ -n "$NEW_VAL" && "$CUR_VAL" != "$NEW_VAL" ]]; then
-              sed -i "s/ARG $ARG_NAME=.*/ARG $ARG_NAME=\"$NEW_VAL\"/" Dockerfile
-              UPDATED=true
-              MSG="$MSG ${REPO##*/} $NEW_VAL,"
-            fi
-          done
-
-          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
-          echo "msg=${MSG%,}" >> $GITHUB_OUTPUT
-
-      - name: Commit and Push (If tag not exists)
+      - name: Open a dependency-update PR
         if: steps.check.outputs.updated == 'true'
+        env:
+          # A PAT is needed so the branch/PR events trigger the read-only PR tests.
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          BRANCH: ${{ steps.check.outputs.branch }}
         run: |
-          NGINX_VER="${{ steps.check.outputs.nginx_ver }}"
-          if [ "${{ steps.check.outputs.nginx_changed }}" == "true" ]; then
-            TAG_NAME="v$NGINX_VER"
-          else
-            TAG_NAME="v$NGINX_VER-upd$(date +%Y%m%d)"
-          fi
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists. Skipping compilation and update."
+          set -euo pipefail
+          : "${GH_TOKEN:?Configure GH_PAT with permission to push a branch and open a PR}"
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json url --jq '.[0].url // ""')
+          if [[ -n "$existing" ]]; then
+            echo "This dependency set already has a PR: $existing"
             exit 0
           fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Dockerfile
-          git commit -m "chore: update dependencies (${{ steps.check.outputs.msg }}) [RELEASE_TAG:$TAG_NAME]"
-          
-          echo "Pushing changes to main to trigger test..."
-          git push origin main
+          remote_branch=$(git ls-remote origin "refs/heads/$BRANCH")
+          gh auth setup-git
+          if [[ -n "$remote_branch" ]]; then
+            # Recover if the previous run pushed the branch but PR creation failed.
+            git fetch --no-tags origin "refs/heads/$BRANCH"
+            git show FETCH_HEAD:Dockerfile > "$RUNNER_TEMP/dependency-update/remote-Dockerfile"
+            cmp Dockerfile "$RUNNER_TEMP/dependency-update/remote-Dockerfile"
+          else
+            git switch -c "$BRANCH"
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add Dockerfile
+            git commit -F "$RUNNER_TEMP/dependency-update/title.txt"
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "$(cat "$RUNNER_TEMP/dependency-update/title.txt")" \
+            --body-file "$RUNNER_TEMP/dependency-update/body.md"

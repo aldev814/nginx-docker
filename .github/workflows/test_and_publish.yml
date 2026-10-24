@@ -1,173 +1,197 @@
 name: Test and Publish
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
-    # 新增 inputs 配置，允许手动输入 Tag
     inputs:
       release_tag:
-        description: 'Release Tag (e.g. v1.0.1). Leave empty for test only.'
+        description: 'Release tag matching Nginx, e.g. v1.31.8-upd1; empty always means test only'
         required: false
         type: string
-  push:
-    branches:
-      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    # 保持原有逻辑：手动触发 或 Commit 消息包含特定标记时运行
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RELEASE_TAG:')
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: nginx-tests-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
+    env:
+      IMAGE: nginx-ci:${{ github.sha }}
+    outputs:
+      release_tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      major_minor: ${{ steps.plan.outputs.major_minor }}
+      image_id: ${{ steps.image.outputs.image_id }}
+      artifact_name: ${{ steps.image.outputs.artifact_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GH_PAT }}
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.8.0
+      - name: Check workflow regression tests
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
-      # --- 第一阶段：构建用于测试的临时镜像 ---
-      - name: Build Nginx for Testing
-        uses: docker/build-push-action@v6.13.0
-        with:
-          context: .
-          load: true
-          tags: aldev814/nginx-docker
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Inspect Nginx Version
-        run: |
-          docker run --rm aldev814/nginx-docker nginx -V 2>&1 | sed 's/\-\-/\n\t--/g'
-
-      # --- 测试阶段 ---
-      - name: Install and setup mkcert
+      - name: Validate release intent and tag before building
+        id: plan
         env:
-          MKCERT_VERSION: v1.4.4
-        run: |
-          set -x
-          sudo apt-get update && \
-            sudo apt-get install -y libnss3-tools
-          curl https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-amd64 --location --output /tmp/mkcert
-          chmod 744 /tmp/mkcert
-          sudo mv /tmp/mkcert /bin/mkcert
-          mkcert -install
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/release.py plan
 
-      - name: Create signed TLS certificates for localhost
-        run: |
-          mkcert -cert-file tests/localhost.crt -key-file tests/localhost.key localhost 0.0.0.0 ::1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Serve a static asset and Test
-        run: |
-          set -x
-          ./run-docker.sh &
-          sleep 5; docker ps
-
-          # 测试 HTTP/1.1
-          curl -v --compressed localhost:8888 2>&1 | tee /tmp/out
-          grep --fixed-strings --invert-match -i '< Server: nginx' /tmp/out > /dev/null
-          grep --fixed-strings '< Content-Encoding: br' /tmp/out
-          grep --fixed-strings '<p>It works!</p>' /tmp/out
-
-          # 测试 HTTP/2 和 HTTPS
-          curl -v --compressed https://localhost:8889 2>&1 | tee /tmp/h2
-          grep --fixed-strings '< HTTP/2 200' /tmp/h2
-          grep --fixed-strings --invert-match -i '< server: nginx' /tmp/h2 > /dev/null
-          grep --fixed-strings '<p>It works!</p>' /tmp/h2
-
-          docker logs test_nginx
-
-      # --- 第二阶段：发布 ---
-      
-      - name: Check Release Request
-        if: success()
-        id: release_check
-        run: |
-          # 1. 获取手动输入的 Tag (如果存在)
-          MANUAL_TAG="${{ inputs.release_tag }}"
-          
-          # 2. 获取 Commit 消息中的 Tag (如果存在)
-          COMMIT_TAG=$(git log -1 --pretty=%B | grep -oP '\[RELEASE_TAG:\K[^\]]+' || echo "")
-          
-          # 3. 判定最终使用的 TAG_NAME (手动输入优先级更高)
-          if [ -n "$MANUAL_TAG" ]; then
-            TAG_NAME="$MANUAL_TAG"
-            echo "Source: Manual Input"
-          elif [ -n "$COMMIT_TAG" ]; then
-            TAG_NAME="$COMMIT_TAG"
-            echo "Source: Commit Message"
-          else
-            TAG_NAME=""
-          fi
-          
-          # 4. 执行后续逻辑
-          if [ -n "$TAG_NAME" ]; then
-            echo "Release requested: $TAG_NAME"
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-            
-            # 处理版本号逻辑
-            VERSION=${TAG_NAME#v}
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            MAJOR_MINOR=$(echo $VERSION | grep -oP '^[0-9]+\.[0-9]+')
-            echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
-          else
-            echo "No release tag found (Input empty & No commit msg tag). Skipping publish."
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Login to DockerHub
-        if: steps.release_check.outputs.should_publish == 'true'
-        uses: docker/login-action@v3.3.0
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
-      - name: Login to GHCR
-        if: steps.release_check.outputs.should_publish == 'true'
-        uses: docker/login-action@v3.3.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker Metadata
-        if: steps.release_check.outputs.should_publish == 'true'
-        id: meta
-        uses: docker/metadata-action@v5.6.1
-        with:
-          images: |
-            ${{ secrets.DOCKER_USERNAME }}/nginx-docker
-            ghcr.io/${{ github.actor }}/nginx-docker
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.release_check.outputs.version }}
-            type=raw,value=${{ steps.release_check.outputs.major_minor }},enable=${{ steps.release_check.outputs.major_minor != '' }}
-
-      # --- 真正的推送步骤 ---
-      - name: Build and Push Image
-        if: steps.release_check.outputs.should_publish == 'true'
-        uses: docker/build-push-action@v6.13.0
+      - name: Build the image once
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=nginx-amd64
+          cache-to: type=gha,mode=max,scope=nginx-amd64
 
-      - name: Push Git Tag
-        if: steps.release_check.outputs.should_publish == 'true'
+      - name: Inspect and test the image
         run: |
-          TAG_NAME="${{ steps.release_check.outputs.tag_name }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # 安全检查：防止 Tag 已存在导致报错 (可选)
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists on remote. Skipping git tag push."
-          else
-            git tag "$TAG_NAME"
-            git push origin "$TAG_NAME"
+          set -euo pipefail
+          docker run --rm "$IMAGE" nginx -V
+          bash .github/scripts/test_image.sh "$IMAGE"
+
+      - name: Collect container diagnostics
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/nginx-diagnostics"
+          docker ps -a > "$RUNNER_TEMP/nginx-diagnostics/containers.txt"
+          if docker container inspect test_nginx > /dev/null 2>&1; then
+            docker logs test_nginx > "$RUNNER_TEMP/nginx-diagnostics/nginx.log" 2>&1
           fi
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nginx-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nginx-diagnostics/
+          retention-days: 7
+
+      - name: Remove test container
+        if: always()
+        run: docker rm -f test_nginx > /dev/null 2>&1 || true
+
+      - name: Save the tested image for publishing
+        if: steps.plan.outputs.tag != ''
+        id: image
+        run: |
+          set -euo pipefail
+          image_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=tested-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/tested-image.tar.gz"
+
+      - name: Upload the tested image
+        if: steps.plan.outputs.tag != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.image.outputs.artifact_name }}
+          path: ${{ runner.temp }}/tested-image.tar.gz
+          compression-level: 0
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.build.outputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: nginx-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+    env:
+      IMAGE: nginx-ci:${{ github.sha }}
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+      VERSION: ${{ needs.build.outputs.version }}
+      MAJOR_MINOR: ${{ needs.build.outputs.major_minor }}
+      EXPECTED_IMAGE_ID: ${{ needs.build.outputs.image_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reject stale or existing releases
+        run: python3 .github/scripts/release.py check-target
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/tested-image
+
+      - name: Load and verify the tested image
+        run: |
+          set -euo pipefail
+          gzip -dc "$RUNNER_TEMP/tested-image/tested-image.tar.gz" | docker load
+          [[ "$(docker image inspect --format '{{.Id}}' "$IMAGE")" == "$EXPECTED_IMAGE_ID" ]]
+          [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")" == "$GITHUB_SHA" ]]
+
+      - name: Authenticate registries
+        env:
+          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : "${DOCKER_HUB_USERNAME:?Configure DOCKER_USERNAME}"
+          : "${DOCKER_HUB_TOKEN:?Configure DOCKER_TOKEN}"
+          printf '%s' "$DOCKER_HUB_TOKEN" | docker login --username "$DOCKER_HUB_USERNAME" --password-stdin
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Reserve the immutable Git tag before pushing images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/release.py check-target
+          gh auth setup-git
+          git tag "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Push the tested image, then update aliases
+        env:
+          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          set -euo pipefail
+          ghcr="ghcr.io/${GITHUB_REPOSITORY,,}"
+          dockerhub="$DOCKER_HUB_USERNAME/${GITHUB_REPOSITORY##*/}"
+          for registry_image in "$ghcr" "$dockerhub"; do
+            docker tag "$EXPECTED_IMAGE_ID" "$registry_image:$VERSION"
+            docker push "$registry_image:$VERSION"
+          done
+          # Recheck freshness before changing mutable aliases; the reserved tag must match this commit.
+          remote_main=$(git ls-remote origin refs/heads/main | cut -f1)
+          [[ "$remote_main" == "$GITHUB_SHA" ]] || { echo 'main advanced; version pushed but aliases were not changed'; exit 1; }
+          for registry_image in "$ghcr" "$dockerhub"; do
+            for alias in "$MAJOR_MINOR" latest; do
+              docker tag "$EXPECTED_IMAGE_ID" "$registry_image:$alias"
+              docker push "$registry_image:$alias"
+            done
+          done
+
+      - name: Logout registries
+        if: always()
+        run: |
+          docker logout ghcr.io || true
+          docker logout || true

@@ -75,7 +75,7 @@ curl http://localhost:8080
 docker logs nginx
 ```
 
-The release workflow targets `aldev814/nginx-docker` and `ghcr.io/aldev814/nginx-docker` (the Docker Hub username comes from a repository secret; the GHCR namespace follows the triggering actor). To use a published image, select a successfully published tag, for example:
+The release workflow targets `aldev814/nginx-docker` and `ghcr.io/aldev814/nginx-docker` (the Docker Hub username comes from a repository secret; GHCR uses the repository owner namespace). To use a published image, select a successfully published tag, for example:
 
 ```sh
 docker pull ghcr.io/aldev814/nginx-docker:latest
@@ -99,11 +99,28 @@ The default configuration also clears selected response headers, adds headers in
 
 ## Dependency updates, tests, and releases
 
-- **Update Dependencies** runs daily at 00:00 UTC (08:00 China Standard Time) and on manual dispatch. Version changes are committed to the Dockerfile with a release marker requesting a build and release. Version fields for disabled modules and allocators may still be updated.
-- **Test and Publish** builds on manual dispatch or when a main-branch commit message contains `[RELEASE_TAG:...]`. A normal push triggers the workflow but skips the build job.
-- Tests cover container startup, an HTTP/1.1 Brotli response, and an HTTPS/HTTP/2 response. The image build also runs `nginx -t`.
-- Leaving manual `release_tag` empty performs tests only if the current commit has no release marker. Supplying a valid tag, such as `v1.31.8`, or using a commit release marker publishes images and creates a Git tag after successful tests.
-- Published image tags include `latest`, the full version without the leading `v`, and the major/minor version. Configure `GH_PAT`, `DOCKER_USERNAME`, and `DOCKER_TOKEN`, and grant `GITHUB_TOKEN` the required package write permissions.
+Both workflows run on GitHub Actions Ubuntu 24.04 runners, with strict Bash error handling, timeouts, and concurrency controls. Actions are pinned to verified release commits.
+
+- **Update Dependencies** runs daily at 00:00 UTC (08:00 China Standard Time) and on manual dispatch from main. It updates Nginx, headers-more, and PCRE2 through a PR instead of committing directly to main.
+- Automatic Nginx updates stay in the current major/minor series. Manual input can select a full version or series; explicit downgrades require `allow_downgrade`. Backup allocators and uncompiled modules are excluded from automatic updates.
+- Update commits and PR titles carry a unique `[RELEASE_TAG:vVERSION-updRUN_ID]` marker. Merge after PR tests pass, retaining the marker in the merge/squash commit to request automatic publishing. Configure the build check as required on main where possible.
+- **Test and Publish** builds and tests every main push, PR, and manual run. PR jobs have read-only permissions and no publishing credentials. An empty manual `release_tag` always means test only, ignoring commit release markers.
+- Tests use the existing static-site fixtures to check HTTP/1.1 status, Brotli, body content, removal of the Server header, HTTPS/HTTP/2, and TLS 1.2/1.3. Startup uses bounded readiness polling. Failures upload diagnostics, and containers are always cleaned up.
+- Publishing requires the current main commit. Manual tags must match the Dockerfile Nginx version, for example `v1.31.8-upd1`. Existing Git tags are never overwritten. Publishing is serialized and main is rechecked before mutable aliases are updated.
+- The image is built once. After tests pass, it is saved as a temporary artifact. A separate publishing job verifies its image ID and source revision and pushes that same image without rebuilding it.
+- Publishing reserves the Git tag first, pushes full version tags, then updates the major/minor and `latest` aliases. Git and the two registries do not offer a cross-service atomic transaction: a failed release can leave a reserved tag or partially pushed images. Inspect the failed release and retry with a new unique tag rather than overwriting it.
+
+GHCR uses `ghcr.io/<repository-owner>/<repository-name>` and Docker Hub uses `<DOCKER_USERNAME>/<repository-name>`, independent of the triggering actor. This repository uses `ghcr.io/aldev814/nginx-docker`.
+
+Dependency PR creation requires `GH_PAT` with permission to push update branches and open PRs, so the resulting PR events can trigger CI. Build-only runs do not require it. Publishing requires `DOCKER_USERNAME` and `DOCKER_TOKEN`; the publishing job explicitly grants `GITHUB_TOKEN` `contents: write` and `packages: write`. Repository/organization policies must permit these operations too.
+
+Run workflow regression checks without Docker:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+```
+
+Actual image builds and HTTP/TLS integration tests run in GitHub Actions. HTTP/3 and application proxy tests are not included.
 
 ## Acknowledgements
 
