@@ -8,7 +8,7 @@ ARG NGINX_VERSION
 ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dynamic_tls_records.patch"
 
 # openssl
-ARG OPENSSL_VERSION="4.0.3"
+ARG OPENSSL_VERSION="4.1.0"
 ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
 
 # zlib by cloudflare
@@ -19,7 +19,7 @@ ARG JEMALLOC_VERSION="5.4.0"
 ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
 
 # mimalloc
-ARG MIMALLOC_VERSION="3.5.3"
+ARG MIMALLOC_VERSION="3.6.0"
 ARG MIMALLOC_URL="https://github.com/microsoft/mimalloc/archive/refs/tags/v${MIMALLOC_VERSION}.tar.gz"
 
 # 默认内存分配器 (jemalloc 或 mimalloc)
