@@ -15,11 +15,11 @@
 </p>
 
 ## What is this？
-Stable and up-to-date nginx with HTTP/2 support, with brotli compression, include zlib by Cloudflare and OpenSSL library with TLS 1.3 Support, BoringSSL's Equal Preferencen Support and ChaCha20-Poly1305 Draft Version Support.In addition to this, I have added some modules.
+Stable and up-to-date nginx with HTTP/2 support, with brotli compression, include zlib by Cloudflare and the Alpine-provided OpenSSL library with TLS 1.3 support.In addition to this, I have added some modules.
 
 ## What's inside?
 * [zlib by Cloudflare](https://github.com/cloudflare/zlib)
-* OpenSSL Library with TLS 1.3 Supprt,  BoringSSL's Equal Preferencen Support and ChaCha20-Poly1305 Draft Version Support
+* Alpine-provided OpenSSL library with TLS 1.3 support
 * [Btotli Compression by google](https://github.com/google/ngx_brotli)
 * [ngx_http_geoip2_module](https://github.com/leev/ngx_http_geoip2_module/)
   
@@ -28,7 +28,7 @@ Stable and up-to-date nginx with HTTP/2 support, with brotli compression, includ
 ```
 nginx version: nginx/1.25.1
 built by gcc 10.3.1 20210424 (Alpine 10.3.1_git20210424) 
-built with OpenSSL 1.1.1u  30 May 2023
+OpenSSL: provided by Alpine packages (version depends on image build)
 TLS SNI support enabled
 configure arguments: 
 	--prefix=/etc/nginx 
@@ -77,15 +77,12 @@ configure arguments:
 	--with-zlib=/usr/src/zlib 
 	--with-pcre=/usr/src/pcre-8.45 
 	--with-pcre-jit 
-	--with-libatomic=/usr/src/libatomic_ops-7.8.0 
 	--add-module=/usr/src/headers-more-nginx-module-0.34 
 	--add-module=/usr/src/ngx-fancyindex-0.5.2 
 	--add-module=/usr/src/ngx_brotli 
 	--add-module=/usr/src/ngx_http_geoip2_module 
 	--add-module=/usr/src/nginx-http-flv-module 
 	--add-module=/usr/src/ngx_http_substitutions_filter_module 
-	--with-openssl=/usr/src/openssl-1.1.1u 
-	--with-openssl-opt='zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128 -ljemalloc -Wl,-flto'
 ```
 
 ## How to use？

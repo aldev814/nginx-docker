@@ -7,10 +7,6 @@ LABEL maintainer="NGINX Docker Maintainers <aldev814>"
 ARG NGINX_VERSION
 ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dynamic_tls_records.patch"
 
-# openssl
-ARG OPENSSL_VERSION="4.1.0"
-ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
-
 # zlib by cloudflare
 ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
 
@@ -41,9 +37,6 @@ ARG GEOIP2_VERSION=3.4
 ARG PCRE2_VERSION="10.47"
 ARG PCRE2_URL="https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz"
 
-ARG LIBATOMIC_VERSION="7.10.0"
-ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${LIBATOMIC_VERSION}/libatomic_ops-${LIBATOMIC_VERSION}.tar.gz"
-
 ARG HTTP_FLV_URL="https://github.com/winshining/nginx-http-flv-module.git"
 
 ARG FANCYINDEX_VERSION="0.6.0"
@@ -62,6 +55,7 @@ RUN \
 	cmake \
 	mercurial \
 	pcre2-dev \
+	openssl-dev \
 	zlib-dev \
 	linux-headers \
 	curl \
@@ -87,23 +81,14 @@ RUN \
 	&& make -f Makefile.in distclean
 
 RUN \
-	echo "Downloading Openssl $OPENSSL_VERSION " \
-	&& cd /usr/src \
-	&& wget -O openssl-${OPENSSL_VERSION}.tar.gz ${OPENSSL_URL} \
-	&& tar -xzvf openssl-${OPENSSL_VERSION}.tar.gz
-
-# Adapted from kn007/patch for the Nginx 1.31.8 source layout.
-COPY patches/use_openssl_md5_sha1.patch /usr/src/patches/use_openssl_md5_sha1.patch
-
-RUN \
 	echo "Cloning nginx $NGINX_VERSION ..." \
 	&& wget -O nginx.tar.gz https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz \
 	&& tar -xzvf nginx.tar.gz -C /usr/src \
 	&& rm -f nginx.tar.gz \
 	&& cd /usr/src/nginx-${NGINX_VERSION} \
+	&& mkdir -p /usr/src/patches \
 	&& curl -fSL ${NGINX_PATCH} -o /usr/src/patches/nginx_dynamic_tls_records.patch \
-	&& patch -p1 < /usr/src/patches/nginx_dynamic_tls_records.patch \
-	&& patch -p1 < /usr/src/patches/use_openssl_md5_sha1.patch
+	&& patch -p1 < /usr/src/patches/nginx_dynamic_tls_records.patch
 
 RUN \
 	echo "Cloning ngx_http2_geoip2_module ..." \
@@ -130,16 +115,6 @@ RUN \
 	&& cd /usr/src \
 	&& wget https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz -O headers-more-nginx-module.tar.gz \
 	&& tar -xf headers-more-nginx-module.tar.gz
-
-RUN \
-	echo "Downloading libatomic_ops ..." \
-	&& cd /usr/src \
-	&& wget -O libatomic_ops-${LIBATOMIC_VERSION}.tar.gz ${LIBATOMIC_URL} \
-	&& tar -xzvf libatomic_ops-${LIBATOMIC_VERSION}.tar.gz \
-	&& cd /usr/src/libatomic_ops-${LIBATOMIC_VERSION} \
-	&&  ./configure \
-	&& make -j $(nproc) \
-	&& ln -s .libs/libatomic_ops.a src/libatomic_ops.a
 
 RUN \
 	echo "Downloading ngx-fancyindex ..." \
@@ -215,8 +190,8 @@ RUN \
 	--with-http_secure_link_module \
 	--with-http_stub_status_module \
 	--with-http_auth_request_module \
-	--with-http_xslt_module=dynamic \
-	--with-http_image_filter_module=dynamic \
+	# --with-http_xslt_module=dynamic \
+	# --with-http_image_filter_module=dynamic \
 	# --with-http_geoip_module=dynamic \
 	--with-threads \
 	--with-stream \
@@ -234,15 +209,12 @@ RUN \
 	--with-zlib=/usr/src/zlib \
 	--with-pcre=/usr/src/pcre2-${PCRE2_VERSION} \
 	--with-pcre-jit \
-	--with-libatomic=/usr/src/libatomic_ops-${LIBATOMIC_VERSION} \
 	--add-module=/usr/src/headers-more-nginx-module-${HEADERS_MORE_VERSION} \
-	--add-module=/usr/src/ngx-fancyindex-${FANCYINDEX_VERSION} \
+	# --add-module=/usr/src/ngx-fancyindex-${FANCYINDEX_VERSION} \
 	--add-module=/usr/src/ngx_brotli \
 	# --add-module=/usr/src/ngx_http_geoip2_module \
 	# --add-module=/usr/src/nginx-http-flv-module \
-	--add-module=/usr/src/ngx_http_substitutions_filter_module \
-	--with-openssl=/usr/src/openssl-${OPENSSL_VERSION} \
-	--with-openssl-opt="zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128  -l${MALLOC_IMPL} -Wl,-flto" \
+	# --add-module=/usr/src/ngx_http_substitutions_filter_module \
 	&& make -j$(getconf _NPROCESSORS_ONLN)
 
 RUN \
@@ -251,7 +223,8 @@ RUN \
 	&& rm -rf /etc/nginx/html/ \
 	&& mkdir /etc/nginx/conf.d/ \
 	&& strip /usr/sbin/nginx* \
-	&& strip /usr/lib/nginx/modules/*.so \
+	&& mkdir -p /usr/lib/nginx/modules \
+	&& find /usr/lib/nginx/modules -type f -name '*.so' -exec strip {} + \
 	\
 	# https://tools.ietf.org/html/rfc7919
 	# https://github.com/mozilla/ssl-config-generator/blob/master/docs/ffdhe2048.txt
@@ -264,7 +237,7 @@ RUN \
 	&& apk add --no-cache --virtual .gettext gettext \
 	&& mv /usr/bin/envsubst /tmp/ \
 	\
-	&& scanelf --needed --nobanner /usr/sbin/nginx /usr/lib/nginx/modules/*.so /tmp/envsubst \
+	&& scanelf --recursive --needed --nobanner /usr/sbin/nginx /usr/lib/nginx/modules /tmp/envsubst \
 	| awk '{ gsub(/,/, "\nso:", $2); print "so:" $2 }' \
 	| sort -u \
 	| xargs -r apk info --installed \
@@ -279,9 +252,8 @@ ENV NGINX_COMMIT $NGINX_COMMIT
 
 COPY --from=base /tmp/runDeps.txt /tmp/runDeps.txt
 COPY --from=base /etc/nginx /etc/nginx
-COPY --from=base /usr/lib/nginx/modules/*.so /usr/lib/nginx/modules/
+COPY --from=base /usr/lib/nginx/modules/ /usr/lib/nginx/modules/
 COPY --from=base /usr/sbin/nginx /usr/sbin/
-COPY --from=base /usr/local/lib/perl5/site_perl /usr/local/lib/perl5/site_perl
 COPY --from=base /tmp/envsubst /usr/local/bin/envsubst
 COPY --from=base /etc/ssl/dhparam.pem /etc/ssl/dhparam.pem
 

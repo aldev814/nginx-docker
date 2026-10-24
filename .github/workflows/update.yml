@@ -9,10 +9,6 @@ on:
         description: 'Force Nginx Version (e.g. 1.29.4 or 1.28)'
         required: false
         type: string
-      openssl_version:
-        description: 'Force OpenSSL Version (e.g. 3.4.0)'
-        required: false
-        type: string
       malloc_impl:
         description: 'Select Memory Allocator'
         required: false
@@ -37,10 +33,6 @@ on:
         description: 'Force GeoIP2 Version (e.g. 3.4)'
         required: false
         type: string
-      libatomic_version:
-        description: 'Force Libatomic_ops Version (e.g. 7.8.2)'
-        required: false
-        type: string
       fancyindex_version:
         description: 'Force Fancyindex Version (e.g. 0.5.2)'
         required: false
@@ -61,13 +53,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IN_NGINX: ${{ inputs.nginx_version }}
-          IN_OPENSSL: ${{ inputs.openssl_version }}
           IN_MALLOC_IMPL: ${{ inputs.malloc_impl }}
           IN_MIMALLOC: ${{ inputs.mimalloc_version }}
           IN_JEMALLOC: ${{ inputs.jemalloc_version }}
           IN_HEADERS_MORE: ${{ inputs.headers_more_version }}
           IN_GEOIP2: ${{ inputs.geoip2_version }}
-          IN_LIBATOMIC: ${{ inputs.libatomic_version }}
           IN_FANCYINDEX: ${{ inputs.fancyindex_version }}
         run: |
           UPDATED=false
@@ -146,29 +136,12 @@ jobs:
             echo "nginx_ver=$CUR_NGINX" >> $GITHUB_OUTPUT
           fi
 
-          # --- 2. OpenSSL 更新检查 ---
-          CUR_SSL=$(grep "ARG OPENSSL_VERSION=" Dockerfile | cut -d= -f2 | tr -d '"')
-          
-          if [ -n "$IN_OPENSSL" ]; then
-            NEW_SSL="$IN_OPENSSL"
-            echo "Manual OpenSSL version: $NEW_SSL"
-          else
-            NEW_SSL=$(get_gh_ver "openssl/openssl")
-          fi
-          
-          if [[ -n "$NEW_SSL" && "$CUR_SSL" != "$NEW_SSL" ]]; then
-             sed -i "s/ARG OPENSSL_VERSION=.*/ARG OPENSSL_VERSION=\"$NEW_SSL\"/" Dockerfile
-             UPDATED=true
-             MSG="$MSG OpenSSL $NEW_SSL,"
-          fi
-
-          # --- 3. 遍历其他模块 ---
+          # --- 2. 遍历其他模块 ---
           MODULES=(
             "JEMALLOC_VERSION|jemalloc/jemalloc|IN_JEMALLOC"
             "MIMALLOC_VERSION|microsoft/mimalloc|IN_MIMALLOC"
             "HEADERS_MORE_VERSION|openresty/headers-more-nginx-module|IN_HEADERS_MORE"
             "GEOIP2_VERSION|leev/ngx_http_geoip2_module|IN_GEOIP2"
-            "LIBATOMIC_VERSION|ivmai/libatomic_ops|IN_LIBATOMIC"
             "FANCYINDEX_VERSION|aperezdc/ngx-fancyindex|IN_FANCYINDEX"
           )
 

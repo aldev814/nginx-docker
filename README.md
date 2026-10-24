@@ -15,12 +15,12 @@
 </p>
 
 ## 这是个啥玩意儿？
-稳定和最新的 nginx，支持 HTTP/2, brotli压缩。包含了 Cloudflare 优化的 zlib 和 支持 TLS 1.3 、BoringSSL 等价加密套件、 CHACHA20-Poly1305 草案的 OpenSSL 库。除此之外，我还添加了一些 nginx 模块。
+稳定和最新的 nginx，支持 HTTP/2, brotli压缩。包含了 Cloudflare 优化的 zlib，TLS 功能使用 Alpine 提供的 OpenSSL 库。除此之外，我还添加了一些 nginx 模块。
 
 ## 里面有些啥？
 
 * [zlib by Cloudflare](https://github.com/cloudflare/zlib)
-* 包含了 TLS 1.3 支持、BoringSSL 等价加密套件和 CHACHA20-Poly1305 草案的 OpenSSL 库
+* 使用 Alpine 提供的 OpenSSL 库，支持 TLS 1.3
 * [Btotli Compression by google](https://github.com/google/ngx_brotli)
 * [ngx_http_geoip2_module](https://github.com/leev/ngx_http_geoip2_module/)
   
@@ -28,7 +28,7 @@
 ```
 nginx version: nginx/1.25.1
 built by gcc 10.3.1 20210424 (Alpine 10.3.1_git20210424) 
-built with OpenSSL 1.1.1u  30 May 2023
+OpenSSL: provided by Alpine packages (version depends on image build)
 TLS SNI support enabled
 configure arguments: 
 	--prefix=/etc/nginx 
@@ -77,15 +77,12 @@ configure arguments:
 	--with-zlib=/usr/src/zlib 
 	--with-pcre=/usr/src/pcre-8.45 
 	--with-pcre-jit 
-	--with-libatomic=/usr/src/libatomic_ops-7.8.0 
 	--add-module=/usr/src/headers-more-nginx-module-0.34 
 	--add-module=/usr/src/ngx-fancyindex-0.5.2 
 	--add-module=/usr/src/ngx_brotli 
 	--add-module=/usr/src/ngx_http_geoip2_module 
 	--add-module=/usr/src/nginx-http-flv-module 
 	--add-module=/usr/src/ngx_http_substitutions_filter_module 
-	--with-openssl=/usr/src/openssl-1.1.1u 
-	--with-openssl-opt='zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128 -ljemalloc -Wl,-flto'
 ```
 ## 咋用？
 
