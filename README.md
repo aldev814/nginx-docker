@@ -112,7 +112,7 @@ TLS 通用配置限定 TLS 1.2/1.3，并配置 session cache、关闭 session ti
 
 GHCR 镜像地址固定为 `ghcr.io/<仓库所有者>/<仓库名>`，Docker Hub 为 `<DOCKER_USERNAME>/<仓库名>`，不随触发者变化。当前仓库的 GHCR 地址为 `ghcr.io/aldev814/nginx-docker`。
 
-自动更新 PR 需要 `GH_PAT`，具备推送更新分支和创建 PR 的权限，以便 PR 事件能触发 CI；仅执行构建测试不需要此 Secret。发布需要 `DOCKER_USERNAME`、`DOCKER_TOKEN`，发布 job 为 `GITHUB_TOKEN` 显式声明 `contents: write` 和 `packages: write`。仓库/组织策略也须允许相应操作。
+自动更新使用仓库自带的 `GITHUB_TOKEN` 创建分支和 PR，身份为 `github-actions[bot]`，不再使用个人 `GH_PAT`。更新工作流声明 `contents: write`、`pull-requests: write`；仓库 Settings → Actions → General → Workflow permissions 需允许 GitHub Actions 创建 PR。由该 Token 创建或更新的 PR，其 CI 按 GitHub 规则可能需要点击 **Approve workflows to run** 后运行。发布需要 `DOCKER_USERNAME`、`DOCKER_TOKEN`，发布 job 为 `GITHUB_TOKEN` 显式声明 `contents: write` 和 `packages: write`。仓库/组织策略也须允许相应操作。
 
 工作流逻辑的回归检查可单独运行，无需 Docker：
 

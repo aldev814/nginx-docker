@@ -23,7 +23,8 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: dependency-updates
@@ -64,12 +65,12 @@ jobs:
       - name: Open a dependency-update PR
         if: steps.check.outputs.updated == 'true'
         env:
-          # A PAT is needed so the branch/PR events trigger the read-only PR tests.
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          # Use the repository bot identity rather than a personal access token.
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.check.outputs.branch }}
         run: |
           set -euo pipefail
-          : "${GH_TOKEN:?Configure GH_PAT with permission to push a branch and open a PR}"
+          : "${GH_TOKEN:?GITHUB_TOKEN is required to push a branch and open a PR}"
           existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json url --jq '.[0].url // ""')
           if [[ -n "$existing" ]]; then
             echo "This dependency set already has a PR: $existing"

@@ -112,7 +112,7 @@ Both workflows run on GitHub Actions Ubuntu 24.04 runners, with strict Bash erro
 
 GHCR uses `ghcr.io/<repository-owner>/<repository-name>` and Docker Hub uses `<DOCKER_USERNAME>/<repository-name>`, independent of the triggering actor. This repository uses `ghcr.io/aldev814/nginx-docker`.
 
-Dependency PR creation requires `GH_PAT` with permission to push update branches and open PRs, so the resulting PR events can trigger CI. Build-only runs do not require it. Publishing requires `DOCKER_USERNAME` and `DOCKER_TOKEN`; the publishing job explicitly grants `GITHUB_TOKEN` `contents: write` and `packages: write`. Repository/organization policies must permit these operations too.
+Dependency branches and PRs use the built-in `GITHUB_TOKEN` and the `github-actions[bot]` identity, not a personal `GH_PAT`. The update workflow requests `contents: write` and `pull-requests: write`; enable PR creation by GitHub Actions under Settings → Actions → General → Workflow permissions. CI triggered by PRs created or updated with this token may require selecting **Approve workflows to run**, according to GitHub rules. Publishing requires `DOCKER_USERNAME` and `DOCKER_TOKEN`; the publishing job explicitly grants `GITHUB_TOKEN` `contents: write` and `packages: write`. Repository/organization policies must permit these operations too.
 
 Run workflow regression checks without Docker:
 
