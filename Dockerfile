@@ -34,7 +34,7 @@ ARG GEOIP2_VERSION=3.4
 # ARG PCRE_VERSION="10.37"
 # ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre2/${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz"
 
-ARG PCRE2_VERSION="10.47"
+ARG PCRE2_VERSION="10.49"
 ARG PCRE2_URL="https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz"
 
 ARG HTTP_FLV_URL="https://github.com/winshining/nginx-http-flv-module.git"
