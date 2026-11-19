@@ -89,10 +89,21 @@ class UpdateTests(unittest.TestCase):
 
     def test_only_active_dependencies_are_updated(self):
         source = (ROOT / "Dockerfile").read_text()
-        versions = {"nginx/nginx": {"1.31.9"}, "openresty/headers-more-nginx-module": {"0.41"}, "PCRE2Project/pcre2": {"10.48"}}
+        # Keep the starting versions independent of the dependency update under test.
+        source = update.set_arg(source, "NGINX_VERSION", "1.31.8")
+        source = update.set_arg(source, "HEADERS_MORE_VERSION", "0.40")
+        source = update.set_arg(source, "PCRE2_VERSION", "10.47")
+        versions = {
+            "nginx/nginx": {"1.31.9"},
+            "openresty/headers-more-nginx-module": {"0.41"},
+            "PCRE2Project/pcre2": {"10.49"},
+        }
         with patch.object(update, "available_versions", side_effect=lambda repo, prefix: versions[repo]) as network:
             updated, changes = update.prepare(source, {})
         self.assertEqual(len(changes), 3)
+        self.assertEqual(update.get_arg(updated, "NGINX_VERSION"), "1.31.9")
+        self.assertEqual(update.get_arg(updated, "HEADERS_MORE_VERSION"), "0.41")
+        self.assertEqual(update.get_arg(updated, "PCRE2_VERSION"), "10.49")
         self.assertEqual(network.call_count, 3)
         for name in ("JEMALLOC_VERSION", "MIMALLOC_VERSION", "MALLOC_IMPL", "GEOIP2_VERSION", "FANCYINDEX_VERSION"):
             self.assertEqual(update.get_arg(source, name), update.get_arg(updated, name))
